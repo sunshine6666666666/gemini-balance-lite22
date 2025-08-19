@@ -5,6 +5,29 @@
 
 import { Buffer } from "node:buffer";
 
+/**
+ * 时间窗口轮询算法 - 负载均衡API Key选择
+ * 将时间分割成固定窗口，在每个窗口内使用确定性轮询分配
+ * 这样可以在短期内保证API Key使用的相对均匀分布
+ *
+ * @param {Array} apiKeys - API Key数组
+ * @returns {string} 选中的API Key
+ */
+function selectApiKeyBalanced(apiKeys) {
+  const now = Date.now();
+  const windowSize = 10000; // 10秒时间窗口
+  const windowStart = Math.floor(now / windowSize) * windowSize;
+  const offsetInWindow = now - windowStart;
+
+  // 在时间窗口内进行轮询分配
+  // 将窗口时间平均分配给每个API Key
+  const slotSize = windowSize / apiKeys.length;
+  const index = Math.floor(offsetInWindow / slotSize) % apiKeys.length;
+
+  console.log(`OpenAI Time-Window Load Balancer - Selected API Key index: ${index}, window offset: ${offsetInWindow}ms`);
+  return apiKeys[index];
+}
+
 export default {
   async fetch (request) {
     if (request.method === "OPTIONS") {
@@ -18,9 +41,12 @@ export default {
       const auth = request.headers.get("Authorization");
       let apiKey = auth?.split(" ")[1];
       if (apiKey && apiKey.includes(',')) {
+        // 解析多个API Key（逗号分隔）
         const apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
-        apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
-        console.log(`OpenAI Selected API Key: ${apiKey}`);
+        // 使用时间窗口轮询算法选择API Key，替代原来的随机选择
+        // 这样可以在短期内保证负载均衡的相对均匀分布
+        apiKey = selectApiKeyBalanced(apiKeys);
+        console.log(`OpenAI Load Balancer - Selected API Key: ${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 8)}`);
       }
       const assert = (success) => {
         if (!success) {
