@@ -6,7 +6,7 @@
 import { Buffer } from "node:buffer";
 
 /**
- * 时间窗口轮询算法 - 负载均衡API Key选择
+ * 时间窗口轮询算法 - 负载均衡API Key选择（保持原有特色）
  * 将时间分割成固定窗口，在每个窗口内使用确定性轮询分配
  * 这样可以在短期内保证API Key使用的相对均匀分布
  *
@@ -40,13 +40,15 @@ export default {
     try {
       const auth = request.headers.get("Authorization");
       let apiKey = auth?.split(" ")[1];
+      let apiKeys = [];
+
       if (apiKey && apiKey.includes(',')) {
         // 解析多个API Key（逗号分隔）
-        const apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
-        // 使用时间窗口轮询算法选择API Key，替代原来的随机选择
-        // 这样可以在短期内保证负载均衡的相对均匀分布
-        apiKey = selectApiKeyBalanced(apiKeys);
-        console.log(`OpenAI Load Balancer - Selected API Key: ${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 8)}`);
+        apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
+        console.log(`OpenAI发现多个API Key: ${apiKeys.length}个`);
+      } else if (apiKey) {
+        // 单个API Key也放入数组
+        apiKeys = [apiKey];
       }
       const assert = (success) => {
         if (!success) {
@@ -57,15 +59,15 @@ export default {
       switch (true) {
         case pathname.endsWith("/chat/completions"):
           assert(request.method === "POST");
-          return handleCompletions(await request.json(), apiKey)
+          return handleCompletions(await request.json(), apiKeys)
             .catch(errHandler);
         case pathname.endsWith("/embeddings"):
           assert(request.method === "POST");
-          return handleEmbeddings(await request.json(), apiKey)
+          return handleEmbeddings(await request.json(), apiKeys.length > 0 ? apiKeys[0] : apiKey)
             .catch(errHandler);
         case pathname.endsWith("/models"):
           assert(request.method === "GET");
-          return handleModels(apiKey)
+          return handleModels(apiKeys.length > 0 ? apiKeys[0] : apiKey)
             .catch(errHandler);
         default:
           throw new HttpError("404 Not Found", 404);
@@ -175,8 +177,82 @@ async function handleEmbeddings (req, apiKey) {
   return new Response(body, fixCors(response));
 }
 
+/**
+ * 增强的fetch函数 - 在保持轮询机制基础上添加超时和故障切换
+ * @param {string} url - 请求URL
+ * @param {Object} options - fetch选项
+ * @param {Array} apiKeys - API Key数组
+ * @returns {Promise<Response>} 响应对象
+ */
+async function enhancedFetch(url, options, apiKeys) {
+  const maxRetries = Math.min(3, apiKeys.length); // 最多重试3次
+  const timeout = 5000; // 5秒超时
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const startTime = Date.now();
+
+    try {
+      // 使用原有的时间窗口轮询算法选择API Key
+      const selectedKey = selectApiKeyBalanced(apiKeys);
+
+      // 更新请求头中的API Key
+      const headers = new Headers(options.headers);
+      headers.set('x-goog-api-key', selectedKey);
+
+      console.log(`🚀 OpenAI尝试 ${attempt}/${maxRetries} - 轮询选择Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
+
+      // 创建超时控制器
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.log(`⏰ OpenAI请求超时 (${timeout}ms) - Key: ${selectedKey.substring(0, 8)}...`);
+      }, timeout);
+
+      // 发送请求
+      const response = await fetch(url, {
+        ...options,
+        headers: headers,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+
+      if (response.ok) {
+        console.log(`✅ OpenAI请求成功 - 耗时: ${duration}ms, 状态: ${response.status}, Key: ${selectedKey.substring(0, 8)}...`);
+        return response;
+      } else {
+        console.log(`❌ OpenAI响应错误 - 状态: ${response.status}, 耗时: ${duration}ms, Key: ${selectedKey.substring(0, 8)}...`);
+        if (response.status >= 500) {
+          // 5xx错误，重试（轮询会自动选择下一个Key）
+          console.log(`🔄 OpenAI服务器错误，将重试并轮询到下一个Key`);
+        } else {
+          // 4xx错误，直接返回
+          console.log(`🚫 OpenAI客户端错误，不重试`);
+          return response;
+        }
+      }
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.log(`❌ OpenAI请求异常 - 耗时: ${duration}ms, 错误: ${error.message}`);
+
+      // 最后一次尝试，抛出错误
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      // 超时或网络错误，重试（轮询会自动选择下一个Key）
+      console.log(`🔄 OpenAI网络异常，将重试并轮询到下一个Key`);
+    }
+
+    // 短暂延迟，让时间窗口轮询选择到不同的Key
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
 const DEFAULT_MODEL = "gemini-2.5-flash";
-async function handleCompletions (req, apiKey) {
+async function handleCompletions (req, apiKeys) {
   let model = DEFAULT_MODEL;
   switch (true) {
     case typeof req.model !== "string":
@@ -215,11 +291,13 @@ async function handleCompletions (req, apiKey) {
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
   if (req.stream) { url += "?alt=sse"; }
-  const response = await fetch(url, {
+
+  // 使用增强的fetch函数，支持超时和重试
+  const response = await enhancedFetch(url, {
     method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+    headers: makeHeaders(apiKeys[0], { "Content-Type": "application/json" }), // 临时使用第一个key，会被enhancedFetch替换
     body: JSON.stringify(body),
-  });
+  }, apiKeys);
 
   body = response.body;
   if (response.ok) {
