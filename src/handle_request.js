@@ -26,14 +26,15 @@ function selectApiKeyBalanced(apiKeys) {
 
 /**
  * 增强的fetch函数 - 在保持轮询机制基础上添加超时和故障切换
+ * 优化策略：45秒超时，遇到任何错误立即换Key
  * @param {string} url - 请求URL
  * @param {Object} options - fetch选项
  * @param {Array} apiKeys - API Key数组
  * @returns {Promise<Response>} 响应对象
  */
 async function enhancedFetch(url, options, apiKeys) {
-  const maxRetries = Math.min(3, apiKeys.length); // 最多重试3次
-  const timeout = 5000; // 5秒超时
+  const maxRetries = apiKeys.length; // 每个Key给一次机会
+  const timeout = 45000; // 45秒超时
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const startTime = Date.now();
@@ -70,14 +71,8 @@ async function enhancedFetch(url, options, apiKeys) {
         return response;
       } else {
         console.log(`❌ 响应错误 - 状态: ${response.status}, 耗时: ${duration}ms, Key: ${selectedKey.substring(0, 8)}...`);
-        if (response.status >= 500) {
-          // 5xx错误，重试（轮询会自动选择下一个Key）
-          console.log(`🔄 服务器错误，将重试并轮询到下一个Key`);
-        } else {
-          // 4xx错误，直接返回
-          console.log(`🚫 客户端错误，不重试`);
-          return response;
-        }
+        // 遇到任何错误都立即换Key
+        console.log(`🔄 遇到错误，立即轮询到下一个Key`);
       }
 
     } catch (error) {
@@ -89,12 +84,11 @@ async function enhancedFetch(url, options, apiKeys) {
         throw error;
       }
 
-      // 超时或网络错误，重试（轮询会自动选择下一个Key）
-      console.log(`🔄 网络异常，将重试并轮询到下一个Key`);
+      // 任何异常都立即轮询到下一个Key
+      console.log(`🔄 网络异常，立即轮询到下一个Key`);
     }
 
-    // 短暂延迟，让时间窗口轮询选择到不同的Key
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // 移除延迟，立即切换到下一个Key
   }
 }
 
@@ -105,7 +99,7 @@ export async function handleRequest(request) {
   const search = url.search;
 
   if (pathname === '/' || pathname === '/index.html') {
-    return new Response('Proxy is Running!  More Details: https://github.com/tech-shrimp/gemini-balance-lite', {
+    return new Response('Proxy is Running!  More Details: https://github.com/sunshine6666666666/gemini-balance-lite22', {
       status: 200,
       headers: { 'Content-Type': 'text/html' }
     });

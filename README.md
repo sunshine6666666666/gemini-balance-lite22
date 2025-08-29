@@ -1,32 +1,61 @@
-# Gemini Balance Lite
-# Gemini API 代理和负载均衡无服务器轻量版（边缘函数）
+# Gemini Balance Lite 22
+# Gemini API 代理和负载均衡无服务器轻量版（增强版）
 
-### 作者：技术爬爬虾
-[B站](https://space.bilibili.com/316183842)，[Youtube](https://www.youtube.com/@Tech_Shrimp)，抖音，公众号 全网同名。转载请注明作者。
+### 基于技术爬爬虾原版优化
+原作者：[技术爬爬虾](https://space.bilibili.com/316183842)
+优化版本：[sunshine6666666666](https://github.com/sunshine6666666666)
 
+## 🚀 新特性
+
+- **45秒超时机制**：适应大数据量LLM请求处理
+- **智能故障切换**：遇到任何错误立即切换API Key
+- **保持轮询特色**：时间窗口轮询算法确保负载均衡
+- **504快速切换**：检测到504网关超时立即换Key
+- **零延迟切换**：移除重试延迟，提升响应速度
 
 ## 项目简介
 
-Gemini API 代理, 使用边缘函数把Gemini API免费中转到国内。还可以聚合多个Gemini API Key，随机选取API Key的使用实现负载均衡，使得Gemini API免费成倍增加。
+Gemini API 代理服务，使用边缘函数把Gemini API免费中转到国内。聚合多个Gemini API Key，使用时间窗口轮询算法实现智能负载均衡，大幅提升API可用性和稳定性。
 
 ## Vercel部署(推荐)
-[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/tech-shrimp/gemini-balance-lite)
+[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/sunshine6666666666/gemini-balance-lite22)
 
 
-1. 点击部署按钮⬆️一键部署。
-2. 国内使用需要配置自定义域名
+### 快速部署步骤
+
+1. **一键部署**：点击上方部署按钮⬆️
+2. **Fork仓库**：选择Fork到你的GitHub账户
+3. **配置项目**：Vercel会自动检测项目配置
+4. **部署完成**：等待部署完成，获得分配的域名
+
+### 配置自定义域名（国内用户必需）
+
+1. 在Vercel项目设置中添加自定义域名
+2. 配置DNS解析指向Vercel
     <details>
-    <summary>配置自定义域名：</summary>
+    <summary>配置自定义域名详细步骤：</summary>
 
     ![image](/docs/images/5.png)
     </details>
-3. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
-<br>将API Key与自定义的域名填入AI客户端即可使用，如果有多个API Key用逗号分隔
+
+### 获取API Key
+
+1. 访问 [Google AI Studio](https://aistudio.google.com) 申请免费Gemini API Key
+2. 支持多个API Key，用逗号分隔：`key1,key2,key3`
+3. 在AI客户端中配置你的域名和API Key
+
     <details>
     <summary>以Cherry Studio为例：</summary>
 
     ![image](/docs/images/2.png)
     </details>
+
+### 环境变量配置（可选）
+
+如果需要自定义配置，可以在Vercel中设置以下环境变量：
+
+- `CUSTOM_LLM_API_KEY`：自定义LLM服务的API Key
+- `CUSTOM_LLM_BASE_URL`：自定义LLM服务的基础URL
 
 
 
