@@ -24,7 +24,7 @@ function selectApiKeyBalanced(apiKeys) {
   const slotSize = windowSize / apiKeys.length;
   const index = Math.floor(offsetInWindow / slotSize) % apiKeys.length;
 
-  console.log(`OpenAI Time-Window Load Balancer - Selected API Key index: ${index}, window offset: ${offsetInWindow}ms`);
+  console.log(`OpenAI Time-Window Load Balancer - Selected API Key index: ${index}/${apiKeys.length-1}, window offset: ${offsetInWindow}ms`);
   return apiKeys[index];
 }
 
@@ -49,6 +49,7 @@ export default {
       } else if (apiKey) {
         // 单个API Key也放入数组
         apiKeys = [apiKey];
+        console.log(`OpenAI发现单个API Key: 1个`);
       }
       const assert = (success) => {
         if (!success) {
@@ -248,6 +249,20 @@ async function enhancedFetch(url, options, apiKeys) {
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 async function handleCompletions (req, apiKeys) {
+  // 🎯 智能API Key管理：单Key时启用备用Key池
+  if (apiKeys.length <= 1) {
+    const backupKeys = process.env.BACKUP_API_KEYS;
+    if (backupKeys) {
+      const backupKeyArray = backupKeys.split(',').map(k => k.trim()).filter(k => k);
+      console.log(`🔧 OpenAI模式检测到单个API Key，启用备用Key池 (${backupKeyArray.length}个)`);
+      apiKeys = backupKeyArray;
+    } else {
+      console.log(`⚠️ OpenAI模式单个API Key且未配置备用Key池`);
+    }
+  } else {
+    console.log(`✅ OpenAI模式使用传入的多个API Key (${apiKeys.length}个)`);
+  }
+
   let model = DEFAULT_MODEL;
   switch (true) {
     case typeof req.model !== "string":
