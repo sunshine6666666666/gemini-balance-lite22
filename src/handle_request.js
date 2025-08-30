@@ -71,8 +71,9 @@ async function enhancedFetch(url, options, apiKeys) {
         return response;
       } else {
         console.log(`❌ 响应错误 - 状态: ${response.status}, 耗时: ${duration}ms, Key: ${selectedKey.substring(0, 8)}...`);
-        // 遇到任何错误都立即换Key
+        // 不返回错误响应，继续尝试下一个Key
         console.log(`🔄 遇到错误，立即轮询到下一个Key`);
+        // 继续循环，不return
       }
 
     } catch (error) {
