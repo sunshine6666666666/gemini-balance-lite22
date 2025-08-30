@@ -137,11 +137,17 @@ export async function handleRequest(request) {
 
     console.log(`🎯 开始请求 - URL: ${targetUrl}, 可用Keys: ${apiKeys.length}`);
 
+    // 修复ReadableStream重复读取问题：先读取请求体内容
+    let requestBodyContent = null;
+    if (request.body) {
+      requestBodyContent = await request.text();
+    }
+
     // 使用增强的fetch函数
     const response = await enhancedFetch(targetUrl, {
       method: request.method,
       headers: headers,
-      body: request.body
+      body: requestBodyContent  // 使用字符串内容而不是ReadableStream
     }, apiKeys);
 
     console.log(`✅ Gemini请求成功 - 状态: ${response.status}`);
