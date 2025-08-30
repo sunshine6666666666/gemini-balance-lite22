@@ -91,6 +91,9 @@ async function enhancedFetch(url, options, apiKeys) {
 
     // 移除延迟，立即切换到下一个Key
   }
+
+  // 修复：所有重试都失败时，抛出错误而不是返回undefined
+  throw new Error('所有API Key都已尝试，请求失败');
 }
 
 export async function handleRequest(request) {
