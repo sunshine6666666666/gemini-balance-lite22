@@ -50,12 +50,43 @@ Gemini API 代理服务，使用边缘函数把Gemini API免费中转到国内�
     ![image](/docs/images/2.png)
     </details>
 
-### 环境变量配置（可选）
+### 环境变量配置
 
-如果需要自定义配置，可以在Vercel中设置以下环境变量：
+#### 🎯 负载均衡配置（推荐）
+
+为了解决Cherry Studio等客户端单API Key配额限制问题，建议配置备用API Key池：
+
+**Vercel部署配置：**
+1. 进入Vercel项目Dashboard
+2. 点击 **Settings** → **Environment Variables**
+3. 添加以下环境变量：
+
+```
+Name: BACKUP_API_KEYS
+Value: your_api_key_1,your_api_key_2,your_api_key_3,your_api_key_4,your_api_key_5
+Environment: Production, Preview, Development (全选)
+```
+
+**本地开发配置：**
+1. 复制 `.env.sample` 为 `.env`
+2. 填入您的API Keys：
+
+```bash
+cp .env.sample .env
+# 编辑 .env 文件，填入实际的API Keys
+```
+
+#### 其他可选配置
 
 - `CUSTOM_LLM_API_KEY`：自定义LLM服务的API Key
 - `CUSTOM_LLM_BASE_URL`：自定义LLM服务的基础URL
+
+#### 🔧 负载均衡工作原理
+
+- **客户端发送单个API Key** → 系统自动使用备用Key池进行负载均衡
+- **客户端发送多个API Key** → 使用客户端提供的Keys
+- **智能故障切换** → 遇到配额限制自动切换到下一个Key
+- **时间窗口轮询** → 确保API Key使用均匀分布
 
 
 

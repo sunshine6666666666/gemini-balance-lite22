@@ -134,6 +134,20 @@ export async function handleRequest(request) {
       }
     }
 
+    // 🎯 智能API Key管理：单Key时启用备用Key池
+    if (apiKeys.length <= 1) {
+      const backupKeys = process.env.BACKUP_API_KEYS;
+      if (backupKeys) {
+        const backupKeyArray = backupKeys.split(',').map(k => k.trim()).filter(k => k);
+        console.log(`🔧 检测到单个API Key，启用备用Key池 (${backupKeyArray.length}个)`);
+        apiKeys = backupKeyArray;
+      } else {
+        console.log(`⚠️ 单个API Key且未配置备用Key池，继续使用单Key`);
+      }
+    } else {
+      console.log(`✅ 使用传入的多个API Key (${apiKeys.length}个)`);
+    }
+
     if (apiKeys.length === 0) {
       throw new Error('未找到API Key');
     }
