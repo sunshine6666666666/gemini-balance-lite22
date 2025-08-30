@@ -3,3 +3,6 @@
 .wrangler
 node_modules/
 .vercel
+
+# Environment variables (contains sensitive API keys)
+.env
