@@ -1,6 +1,31 @@
 import { handleVerification } from './verify_keys.js';
 import openai from './openai.mjs';
 
+
+
+/**
+ * 安全模块：API Key白名单验证
+ * 只允许可信的API Key使用备用Key池
+ */
+function validateTrustedApiKey(inputApiKey) {
+  const trustedKeys = process.env.TRUSTED_API_KEYS;
+  if (!trustedKeys) {
+    console.log(`⚠️ 未配置TRUSTED_API_KEYS，禁用备用Key池功能`);
+    return false;
+  }
+
+  const trustedKeyArray = trustedKeys.split(',').map(k => k.trim()).filter(k => k);
+  const isValid = trustedKeyArray.includes(inputApiKey);
+
+  if (isValid) {
+    console.log(`✅ API Key白名单验证通过: ${inputApiKey?.substring(0,8)}...`);
+  } else {
+    console.log(`🚫 API Key不在白名单中，拒绝使用备用Key池: ${inputApiKey?.substring(0,8)}...`);
+  }
+
+  return isValid;
+}
+
 /**
  * 时间窗口轮询算法 - 负载均衡API Key选择（保持原有特色）
  * 将时间分割成固定窗口，在每个窗口内使用确定性轮询分配
@@ -134,15 +159,34 @@ export async function handleRequest(request) {
       }
     }
 
-    // 🎯 智能API Key管理：单Key时启用备用Key池
+    // 🎯 智能API Key管理：单Key时启用备用Key池（需要白名单验证）
     if (apiKeys.length <= 1) {
+      const inputApiKey = apiKeys[0];
+
+      // 🛡️ 白名单验证：只有可信Key才能使用备用Key池
+      if (!validateTrustedApiKey(inputApiKey)) {
+        console.log(`🚫 API Key未通过白名单验证，拒绝请求: ${inputApiKey?.substring(0,8)}...`);
+        return new Response(
+          JSON.stringify({
+            error: 'Unauthorized',
+            message: 'API Key not in trusted whitelist. Access denied.',
+            code: 'UNTRUSTED_API_KEY'
+          }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      // 白名单验证通过，启用备用Key池
       const backupKeys = process.env.BACKUP_API_KEYS;
       if (backupKeys) {
         const backupKeyArray = backupKeys.split(',').map(k => k.trim()).filter(k => k);
-        console.log(`🔧 检测到单个API Key，启用备用Key池 (${backupKeyArray.length}个)`);
+        console.log(`🔧 白名单验证通过，启用备用Key池 (${backupKeyArray.length}个)`);
         apiKeys = backupKeyArray;
       } else {
-        console.log(`⚠️ 单个API Key且未配置备用Key池，继续使用单Key`);
+        console.log(`⚠️ 白名单验证通过但未配置备用Key池，继续使用单Key`);
       }
     } else {
       console.log(`✅ 使用传入的多个API Key (${apiKeys.length}个)`);

@@ -51,9 +51,19 @@
 2. 点击 **Settings** → **Environment Variables**
 3. 添加以下环境变量：
 
+#### 📋 必需配置
+
+**备用API Key池：**
 ```
 Name: BACKUP_API_KEYS
 Value: your_api_key_1,your_api_key_2,your_api_key_3,your_api_key_4,your_api_key_5
+Environment: Production, Preview, Development (全选)
+```
+
+**🛡️ 安全白名单（重要）：**
+```
+Name: TRUSTED_API_KEYS
+Value: your_trusted_key_1,your_trusted_key_2,your_trusted_key_3
 Environment: Production, Preview, Development (全选)
 ```
 
@@ -66,12 +76,24 @@ cp .env.sample .env
 # 编辑 .env 文件，填入实际的API Keys
 ```
 
+### 🛡️ 安全机制说明
+
+**API Key白名单保护：**
+- **单个API Key请求**：系统首先检查该Key是否在`TRUSTED_API_KEYS`白名单中
+- **白名单验证通过**：允许使用`BACKUP_API_KEYS`进行负载均衡
+- **白名单验证失败**：直接拒绝请求，返回401未授权错误
+- **多个API Key请求**：正常处理，不启用备用Key池
+
+**安全优势：**
+- 🔒 **防止配额盗用**：只有可信用户才能使用您的备用Key池
+- 🛡️ **访问控制**：恶意用户无法通过发送无效Key来免费使用您的配额
+- 📊 **清晰日志**：详细记录白名单验证过程，便于监控
+
 ### 🔧 负载均衡工作原理
 
-- **客户端发送单个API Key** → 系统自动使用备用Key池进行负载均衡
-- **客户端发送多个API Key** → 使用客户端提供的Keys
 - **智能故障切换** → 遇到配额限制自动切换到下一个Key
 - **时间窗口轮询** → 确保API Key使用均匀分布
+- **安全保护** → 只有白名单Key才能触发备用Key池
 
 ## 🛠️ 本地开发
 
