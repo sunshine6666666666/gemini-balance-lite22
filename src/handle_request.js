@@ -5,7 +5,10 @@ import openai from './openai.mjs';
 
 /**
  * 安全模块：API Key白名单验证
- * 只允许可信的API Key使用备用Key池
+ * 只允许可信的API Key使用备用Key池，防止恶意用户盗用API配额
+ *
+ * @param {string} inputApiKey - 需要验证的API Key
+ * @returns {boolean} 验证结果，true表示在白名单中，false表示不在白名单中或未配置白名单
  */
 function validateTrustedApiKey(inputApiKey) {
   const trustedKeys = process.env.TRUSTED_API_KEYS;
@@ -51,11 +54,13 @@ function selectApiKeyBalanced(apiKeys) {
 
 /**
  * 增强的fetch函数 - 在保持轮询机制基础上添加超时和故障切换
- * 优化策略：45秒超时，遇到任何错误立即换Key
+ * 优化策略：45秒超时，遇到任何错误立即换Key，零延迟切换提升响应速度
+ *
  * @param {string} url - 请求URL
- * @param {Object} options - fetch选项
- * @param {Array} apiKeys - API Key数组
- * @returns {Promise<Response>} 响应对象
+ * @param {Object} options - fetch选项，包含method、headers、body等
+ * @param {Array<string>} apiKeys - API Key数组，用于负载均衡和故障切换
+ * @returns {Promise<Response>} 响应对象，成功时返回有效响应，失败时抛出错误
+ * @throws {Error} 当所有API Key都尝试失败时抛出错误
  */
 async function enhancedFetch(url, options, apiKeys) {
   const maxRetries = apiKeys.length; // 每个Key给一次机会
@@ -73,6 +78,14 @@ async function enhancedFetch(url, options, apiKeys) {
       headers.set('x-goog-api-key', selectedKey);
 
       console.log(`🚀 尝试 ${attempt}/${maxRetries} - 轮询选择Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
+      console.log(`📋 请求头详情:`);
+      for (const [key, value] of headers.entries()) {
+        if (key.toLowerCase().includes('key')) {
+          console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
 
       // 创建超时控制器
       const controller = new AbortController();
@@ -91,11 +104,25 @@ async function enhancedFetch(url, options, apiKeys) {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
+      console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
+      console.log(`📋 响应头:`);
+      for (const [key, value] of response.headers.entries()) {
+        console.log(`  ${key}: ${value}`);
+      }
+
       if (response.ok) {
         console.log(`✅ 请求成功 - 耗时: ${duration}ms, 状态: ${response.status}, Key: ${selectedKey.substring(0, 8)}...`);
         return response;
       } else {
         console.log(`❌ 响应错误 - 状态: ${response.status}, 耗时: ${duration}ms, Key: ${selectedKey.substring(0, 8)}...`);
+        // 尝试读取错误响应体
+        try {
+          const errorText = await response.text();
+          console.log(`📦 错误响应体:`);
+          console.log(errorText);
+        } catch (e) {
+          console.log(`📦 无法读取错误响应体`);
+        }
         // 不返回错误响应，继续尝试下一个Key
         console.log(`🔄 遇到错误，立即轮询到下一个Key`);
         // 继续循环，不return
@@ -121,13 +148,45 @@ async function enhancedFetch(url, options, apiKeys) {
   throw new Error('所有API Key都已尝试，请求失败');
 }
 
+
+
+/**
+ * 主要请求处理函数 - 处理所有传入的HTTP请求
+ * 支持原生Gemini API格式和OpenAI兼容格式，包含智能负载均衡和安全验证
+ *
+ * @param {Request} request - HTTP请求对象，包含URL、headers、body等信息
+ * @returns {Promise<Response>} HTTP响应对象，包含处理结果或错误信息
+ */
 export async function handleRequest(request) {
 
   const url = new URL(request.url);
   const pathname = url.pathname;
   const search = url.search;
 
+  // 📊 详细请求日志记录
+  console.log(`\n🔍 ===== 详细请求信息开始 =====`);
+  console.log(`📥 请求方法: ${request.method}`);
+  console.log(`🌐 完整URL: ${request.url}`);
+  console.log(`📍 路径: ${pathname}`);
+  console.log(`🔗 查询参数: ${search || '无'}`);
+  console.log(`🏠 主机: ${url.host}`);
+  console.log(`🔒 协议: ${url.protocol}`);
+
+  // 记录所有请求头
+  console.log(`📋 请求头详情:`);
+  for (const [key, value] of request.headers.entries()) {
+    // 对敏感信息进行部分遮蔽
+    if (key.toLowerCase().includes('key') || key.toLowerCase().includes('authorization')) {
+      const maskedValue = value.length > 16 ? `${value.substring(0, 8)}...${value.substring(value.length - 8)}` : value;
+      console.log(`  ${key}: ${maskedValue}`);
+    } else {
+      console.log(`  ${key}: ${value}`);
+    }
+  }
+
   if (pathname === '/' || pathname === '/index.html') {
+    console.log(`🏠 处理首页请求`);
+    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
     return new Response('Proxy is Running!  More Details: https://github.com/sunshine6666666666/gemini-balance-lite22', {
       status: 200,
       headers: { 'Content-Type': 'text/html' }
@@ -135,15 +194,20 @@ export async function handleRequest(request) {
   }
 
   if (pathname === '/verify' && request.method === 'POST') {
+    console.log(`🔍 处理API Key验证请求`);
+    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
     return handleVerification(request);
   }
 
   // 处理OpenAI格式请求
   if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
+    console.log(`🤖 检测到OpenAI格式请求，转发到OpenAI兼容模块`);
+    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
     return openai.fetch(request);
   }
 
   const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
+  console.log(`🎯 目标URL: ${targetUrl}`);
 
   try {
     const headers = new Headers();
@@ -154,6 +218,22 @@ export async function handleRequest(request) {
       if (key.trim().toLowerCase() === 'x-goog-api-key') {
         // 解析多个API Key（逗号分隔）
         apiKeys = value.split(',').map(k => k.trim()).filter(k => k);
+      } else if (key.trim().toLowerCase() === 'authorization') {
+        // 支持OpenAI格式的Authorization Bearer头
+        const bearerMatch = value.match(/^Bearer\s+(.+)$/i);
+        if (bearerMatch && apiKeys.length === 0) {
+          // 只有在没有找到x-goog-api-key时才使用Authorization头
+          const bearerToken = bearerMatch[1];
+          if (bearerToken.includes(',')) {
+            // 解析多个API Key（逗号分隔）
+            apiKeys = bearerToken.split(',').map(k => k.trim()).filter(k => k);
+            console.log(`📋 从Authorization头提取到多个API Key: ${apiKeys.length}个`);
+          } else {
+            // 单个API Key
+            apiKeys = [bearerToken];
+            console.log(`📋 从Authorization头提取到单个API Key`);
+          }
+        }
       } else if (key.trim().toLowerCase() === 'content-type') {
         headers.set(key, value);
       }
@@ -202,7 +282,23 @@ export async function handleRequest(request) {
     let requestBodyContent = null;
     if (request.body) {
       requestBodyContent = await request.text();
+      console.log(`📦 请求体内容:`);
+      if (requestBodyContent) {
+        try {
+          // 尝试格式化JSON
+          const jsonBody = JSON.parse(requestBodyContent);
+          console.log(JSON.stringify(jsonBody, null, 2));
+        } catch (e) {
+          // 如果不是JSON，直接显示
+          console.log(requestBodyContent);
+        }
+      } else {
+        console.log(`  (空请求体)`);
+      }
+    } else {
+      console.log(`📦 请求体: 无`);
     }
+    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
 
     // 使用增强的fetch函数
     const response = await enhancedFetch(targetUrl, {
@@ -213,6 +309,14 @@ export async function handleRequest(request) {
 
     console.log(`✅ Gemini请求成功 - 状态: ${response.status}`);
 
+    // 记录响应详情
+    console.log(`\n📤 ===== 详细响应信息开始 =====`);
+    console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
+    console.log(`📋 原始响应头:`);
+    for (const [key, value] of response.headers.entries()) {
+      console.log(`  ${key}: ${value}`);
+    }
+
     // 处理响应头
     const responseHeaders = new Headers(response.headers);
     responseHeaders.delete('transfer-encoding');
@@ -221,6 +325,35 @@ export async function handleRequest(request) {
     responseHeaders.delete('content-encoding');
     responseHeaders.set('Referrer-Policy', 'no-referrer');
     responseHeaders.set('X-Processed-By', 'Enhanced-Gemini-Proxy');
+
+    console.log(`📋 处理后响应头:`);
+    for (const [key, value] of responseHeaders.entries()) {
+      console.log(`  ${key}: ${value}`);
+    }
+
+    // 如果是非流式响应，记录响应体
+    if (!response.body || response.headers.get('content-type')?.includes('application/json')) {
+      try {
+        const responseClone = response.clone();
+        const responseText = await responseClone.text();
+        console.log(`📦 响应体内容:`);
+        if (responseText) {
+          try {
+            const jsonResponse = JSON.parse(responseText);
+            console.log(JSON.stringify(jsonResponse, null, 2));
+          } catch (e) {
+            console.log(responseText);
+          }
+        } else {
+          console.log(`  (空响应体)`);
+        }
+      } catch (e) {
+        console.log(`📦 响应体: 无法读取 (可能是流式响应)`);
+      }
+    } else {
+      console.log(`📦 响应体: 流式响应，无法预览`);
+    }
+    console.log(`📤 ===== 详细响应信息结束 =====\n`);
 
     return new Response(response.body, {
       status: response.status,
@@ -231,6 +364,12 @@ export async function handleRequest(request) {
     console.error(`❌ 请求最终失败: ${error.message}`);
     console.error(`📊 错误堆栈: ${error.stack}`);
 
+    // 记录错误响应详情
+    console.log(`\n📤 ===== 错误响应信息开始 =====`);
+    console.log(`❌ 错误类型: ${error.name || 'RequestError'}`);
+    console.log(`❌ 错误消息: ${error.message}`);
+    console.log(`❌ 错误时间: ${new Date().toISOString()}`);
+
     // 返回结构化错误响应
     const errorResponse = {
       error: {
@@ -239,6 +378,10 @@ export async function handleRequest(request) {
         timestamp: new Date().toISOString()
       }
     };
+
+    console.log(`📦 错误响应体:`);
+    console.log(JSON.stringify(errorResponse, null, 2));
+    console.log(`📤 ===== 错误响应信息结束 =====\n`);
 
     return new Response(JSON.stringify(errorResponse), {
       status: error.name === 'AbortError' ? 408 : 500,

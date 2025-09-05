@@ -6,8 +6,11 @@
 import { Buffer } from "node:buffer";
 
 /**
- * 安全模块：API Key白名单验证
- * 只允许可信的API Key使用备用Key池
+ * 安全模块：API Key白名单验证 - OpenAI模式专用
+ * 只允许可信的API Key使用备用Key池，防止恶意用户盗用API配额
+ *
+ * @param {string} inputApiKey - 需要验证的API Key
+ * @returns {boolean} 验证结果，true表示在白名单中，false表示不在白名单中或未配置白名单
  */
 function validateTrustedApiKey(inputApiKey) {
   const trustedKeys = process.env.TRUSTED_API_KEYS;
@@ -51,9 +54,42 @@ function selectApiKeyBalanced(apiKeys) {
   return apiKeys[index];
 }
 
+/**
+ * OpenAI兼容API处理器 - 主要导出对象
+ * 提供与OpenAI API兼容的接口，支持chat/completions、embeddings、models等端点
+ */
 export default {
+  /**
+   * 处理OpenAI格式的HTTP请求
+   * 支持chat/completions、embeddings、models等端点，自动进行格式转换
+   *
+   * @param {Request} request - HTTP请求对象
+   * @returns {Promise<Response>} HTTP响应对象，包含OpenAI格式的响应数据
+   */
   async fetch (request) {
+    // 📊 OpenAI模式详细请求日志记录
+    const url = new URL(request.url);
+    console.log(`\n🤖 ===== OpenAI模式详细请求信息开始 =====`);
+    console.log(`📥 请求方法: ${request.method}`);
+    console.log(`🌐 完整URL: ${request.url}`);
+    console.log(`📍 路径: ${url.pathname}`);
+    console.log(`🔗 查询参数: ${url.search || '无'}`);
+
+    // 记录所有请求头
+    console.log(`📋 请求头详情:`);
+    for (const [key, value] of request.headers.entries()) {
+      // 对敏感信息进行部分遮蔽
+      if (key.toLowerCase().includes('authorization')) {
+        const maskedValue = value.length > 16 ? `${value.substring(0, 16)}...${value.substring(value.length - 8)}` : value;
+        console.log(`  ${key}: ${maskedValue}`);
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
+    }
+
     if (request.method === "OPTIONS") {
+      console.log(`🔧 处理OPTIONS预检请求`);
+      console.log(`🤖 ===== OpenAI模式详细请求信息结束 =====\n`);
       return handleOPTIONS();
     }
     const errHandler = (err) => {
@@ -80,20 +116,41 @@ export default {
         }
       };
       const { pathname } = new URL(request.url);
+
+      // 记录请求体（如果有）
+      let requestBody = null;
+      if (request.method === "POST") {
+        try {
+          const requestClone = request.clone();
+          requestBody = await requestClone.json();
+          console.log(`📦 请求体内容:`);
+          console.log(JSON.stringify(requestBody, null, 2));
+        } catch (e) {
+          console.log(`📦 请求体: 无法解析JSON`);
+        }
+      } else {
+        console.log(`📦 请求体: 无 (GET请求)`);
+      }
+      console.log(`🤖 ===== OpenAI模式详细请求信息结束 =====\n`);
+
       switch (true) {
         case pathname.endsWith("/chat/completions"):
+          console.log(`🗨️ 处理聊天完成请求`);
           assert(request.method === "POST");
-          return handleCompletions(await request.json(), apiKeys)
+          return handleCompletions(requestBody || await request.json(), apiKeys)
             .catch(errHandler);
         case pathname.endsWith("/embeddings"):
+          console.log(`🔤 处理文本嵌入请求`);
           assert(request.method === "POST");
-          return handleEmbeddings(await request.json(), apiKeys.length > 0 ? apiKeys[0] : apiKey)
+          return handleEmbeddings(requestBody || await request.json(), apiKeys.length > 0 ? apiKeys[0] : apiKey)
             .catch(errHandler);
         case pathname.endsWith("/models"):
+          console.log(`📋 处理模型列表请求`);
           assert(request.method === "GET");
           return handleModels(apiKeys.length > 0 ? apiKeys[0] : apiKey)
             .catch(errHandler);
         default:
+          console.log(`❌ 未知的OpenAI端点: ${pathname}`);
           throw new HttpError("404 Not Found", 404);
       }
     } catch (err) {
@@ -102,7 +159,17 @@ export default {
   }
 };
 
+/**
+ * HTTP错误类 - 用于处理API请求中的错误情况
+ * 继承自Error类，添加了HTTP状态码支持
+ */
 class HttpError extends Error {
+  /**
+   * 创建HTTP错误实例
+   *
+   * @param {string} message - 错误消息
+   * @param {number} status - HTTP状态码
+   */
   constructor(message, status) {
     super(message);
     this.name = this.constructor.name;
@@ -110,12 +177,25 @@ class HttpError extends Error {
   }
 }
 
+/**
+ * 修复CORS响应头
+ * 为响应添加必要的CORS头，允许跨域访问
+ *
+ * @param {Object} response - 响应对象，包含headers、status、statusText
+ * @returns {Object} 修复后的响应对象，添加了CORS头
+ */
 const fixCors = ({ headers, status, statusText }) => {
   headers = new Headers(headers);
   headers.set("Access-Control-Allow-Origin", "*");
   return { headers, status, statusText };
 };
 
+/**
+ * 处理OPTIONS预检请求
+ * 返回允许所有跨域请求的CORS头
+ *
+ * @returns {Promise<Response>} 包含CORS头的空响应
+ */
 const handleOPTIONS = async () => {
   return new Response(null, {
     headers: {
@@ -131,20 +211,51 @@ const API_VERSION = "v1beta";
 
 // https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
 const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
+/**
+ * 创建Gemini API请求头
+ * 生成包含API Key和客户端信息的标准请求头
+ *
+ * @param {string} apiKey - Gemini API Key
+ * @param {Object} more - 额外的请求头
+ * @returns {Object} 完整的请求头对象
+ */
 const makeHeaders = (apiKey, more) => ({
   "x-goog-api-client": API_CLIENT,
   ...(apiKey && { "x-goog-api-key": apiKey }),
   ...more
 });
 
+/**
+ * 处理模型列表请求
+ * 获取可用的Gemini模型列表并转换为OpenAI格式
+ *
+ * @param {string} apiKey - Gemini API Key
+ * @returns {Promise<Response>} 包含模型列表的响应，OpenAI格式
+ */
 async function handleModels (apiKey) {
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
+  console.log(`\n🔄 ===== 发送Gemini API请求 =====`);
+  const requestUrl = `${BASE_URL}/${API_VERSION}/models`;
+  console.log(`🎯 请求URL: ${requestUrl}`);
+  console.log(`🔑 使用API Key: ${apiKey?.substring(0, 8)}...${apiKey?.substring(apiKey.length - 8)}`);
+
+  const response = await fetch(requestUrl, {
     headers: makeHeaders(apiKey),
   });
+
+  console.log(`📊 Gemini响应状态: ${response.status} ${response.statusText}`);
+  console.log(`📋 Gemini响应头:`);
+  for (const [key, value] of response.headers.entries()) {
+    console.log(`  ${key}: ${value}`);
+  }
+
   let { body } = response;
   if (response.ok) {
-    const { models } = JSON.parse(await response.text());
-    body = JSON.stringify({
+    const responseText = await response.text();
+    console.log(`📦 Gemini原始响应:`);
+    console.log(responseText);
+
+    const { models } = JSON.parse(responseText);
+    const transformedBody = {
       object: "list",
       data: models.map(({ name }) => ({
         id: name.replace("models/", ""),
@@ -152,13 +263,34 @@ async function handleModels (apiKey) {
         created: 0,
         owned_by: "",
       })),
-    }, null, "  ");
+    };
+    body = JSON.stringify(transformedBody, null, "  ");
+
+    console.log(`📦 转换后的OpenAI格式响应:`);
+    console.log(body);
+  } else {
+    console.log(`❌ Gemini API请求失败`);
   }
+  console.log(`🔄 ===== Gemini API请求结束 =====\n`);
+
   return new Response(body, fixCors(response));
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
+/**
+ * 处理文本嵌入请求
+ * 将OpenAI格式的嵌入请求转换为Gemini格式并处理
+ *
+ * @param {Object} req - OpenAI格式的嵌入请求对象
+ * @param {string} apiKey - Gemini API Key
+ * @returns {Promise<Response>} 包含嵌入向量的响应，OpenAI格式
+ * @throws {HttpError} 当模型未指定或请求格式错误时抛出
+ */
 async function handleEmbeddings (req, apiKey) {
+  console.log(`\n🔤 ===== 处理文本嵌入请求 =====`);
+  console.log(`📋 原始请求参数:`);
+  console.log(JSON.stringify(req, null, 2));
+
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
@@ -171,24 +303,44 @@ async function handleEmbeddings (req, apiKey) {
     }
     model = "models/" + req.model;
   }
+  console.log(`🤖 使用模型: ${model}`);
+
   if (!Array.isArray(req.input)) {
     req.input = [ req.input ];
   }
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
+  console.log(`📝 输入文本数量: ${req.input.length}`);
+
+  const requestBody = {
+    "requests": req.input.map(text => ({
+      model,
+      content: { parts: { text } },
+      outputDimensionality: req.dimensions,
+    }))
+  };
+
+  console.log(`\n🔄 ===== 发送Gemini嵌入API请求 =====`);
+  const requestUrl = `${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`;
+  console.log(`🎯 请求URL: ${requestUrl}`);
+  console.log(`🔑 使用API Key: ${apiKey?.substring(0, 8)}...${apiKey?.substring(apiKey.length - 8)}`);
+  console.log(`📦 请求体:`);
+  console.log(JSON.stringify(requestBody, null, 2));
+
+  const response = await fetch(requestUrl, {
     method: "POST",
     headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      "requests": req.input.map(text => ({
-        model,
-        content: { parts: { text } },
-        outputDimensionality: req.dimensions,
-      }))
-    })
+    body: JSON.stringify(requestBody)
   });
+
+  console.log(`📊 Gemini响应状态: ${response.status} ${response.statusText}`);
+
   let { body } = response;
   if (response.ok) {
-    const { embeddings } = JSON.parse(await response.text());
-    body = JSON.stringify({
+    const responseText = await response.text();
+    console.log(`📦 Gemini原始响应:`);
+    console.log(responseText);
+
+    const { embeddings } = JSON.parse(responseText);
+    const transformedBody = {
       object: "list",
       data: embeddings.map(({ values }, index) => ({
         object: "embedding",
@@ -196,18 +348,28 @@ async function handleEmbeddings (req, apiKey) {
         embedding: values,
       })),
       model: req.model,
-    }, null, "  ");
+    };
+    body = JSON.stringify(transformedBody, null, "  ");
+
+    console.log(`📦 转换后的OpenAI格式响应:`);
+    console.log(body);
+  } else {
+    console.log(`❌ Gemini嵌入API请求失败`);
   }
+  console.log(`🔄 ===== Gemini嵌入API请求结束 =====\n`);
+
   return new Response(body, fixCors(response));
 }
 
 /**
- * 增强的fetch函数 - 在保持轮询机制基础上添加超时和故障切换
- * 优化策略：45秒超时，遇到任何错误立即换Key
+ * 增强的fetch函数 - OpenAI模式专用，在保持轮询机制基础上添加超时和故障切换
+ * 优化策略：45秒超时，遇到任何错误立即换Key，零延迟切换提升响应速度
+ *
  * @param {string} url - 请求URL
- * @param {Object} options - fetch选项
- * @param {Array} apiKeys - API Key数组
- * @returns {Promise<Response>} 响应对象
+ * @param {Object} options - fetch选项，包含method、headers、body等
+ * @param {Array<string>} apiKeys - API Key数组，用于负载均衡和故障切换
+ * @returns {Promise<Response>} 响应对象，成功时返回有效响应，失败时抛出错误
+ * @throws {Error} 当所有API Key都尝试失败时抛出错误
  */
 async function enhancedFetch(url, options, apiKeys) {
   const maxRetries = apiKeys.length; // 每个Key给一次机会
@@ -225,6 +387,14 @@ async function enhancedFetch(url, options, apiKeys) {
       headers.set('x-goog-api-key', selectedKey);
 
       console.log(`🚀 OpenAI尝试 ${attempt}/${maxRetries} - 轮询选择Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
+      console.log(`📋 请求头详情:`);
+      for (const [key, value] of headers.entries()) {
+        if (key.toLowerCase().includes('key')) {
+          console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
 
       // 创建超时控制器
       const controller = new AbortController();
@@ -243,11 +413,25 @@ async function enhancedFetch(url, options, apiKeys) {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
+      console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
+      console.log(`📋 响应头:`);
+      for (const [key, value] of response.headers.entries()) {
+        console.log(`  ${key}: ${value}`);
+      }
+
       if (response.ok) {
         console.log(`✅ OpenAI请求成功 - 耗时: ${duration}ms, 状态: ${response.status}, Key: ${selectedKey.substring(0, 8)}...`);
         return response;
       } else {
         console.log(`❌ OpenAI响应错误 - 状态: ${response.status}, 耗时: ${duration}ms, Key: ${selectedKey.substring(0, 8)}...`);
+        // 尝试读取错误响应体
+        try {
+          const errorText = await response.text();
+          console.log(`📦 错误响应体:`);
+          console.log(errorText);
+        } catch (e) {
+          console.log(`📦 无法读取错误响应体`);
+        }
         // 不返回错误响应，继续尝试下一个Key
         console.log(`🔄 OpenAI遇到错误，立即轮询到下一个Key`);
         // 继续循环，不return
@@ -271,6 +455,15 @@ async function enhancedFetch(url, options, apiKeys) {
 }
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
+/**
+ * 处理聊天完成请求 - OpenAI格式转Gemini格式
+ * 支持流式和非流式响应，包含智能负载均衡和白名单验证
+ *
+ * @param {Object} req - OpenAI格式的聊天完成请求对象
+ * @param {Array<string>} apiKeys - API Key数组，用于负载均衡
+ * @returns {Promise<Response>} 包含聊天完成结果的响应，OpenAI格式
+ * @throws {HttpError} 当请求格式错误或API Key验证失败时抛出
+ */
 async function handleCompletions (req, apiKeys) {
   // 🎯 智能API Key管理：单Key时启用备用Key池（需要白名单验证）
   if (apiKeys.length <= 1) {
@@ -346,6 +539,12 @@ async function handleCompletions (req, apiKeys) {
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
   if (req.stream) { url += "?alt=sse"; }
 
+  console.log(`\n🔄 ===== 发送Gemini聊天API请求 =====`);
+  console.log(`🎯 请求URL: ${url}`);
+  console.log(`🔑 可用API Key数量: ${apiKeys.length}`);
+  console.log(`📦 发送给Gemini的请求体:`);
+  console.log(JSON.stringify(body, null, 2));
+
   // 使用增强的fetch函数，支持超时和重试
   const response = await enhancedFetch(url, {
     method: "POST",
@@ -353,11 +552,18 @@ async function handleCompletions (req, apiKeys) {
     body: JSON.stringify(body),
   }, apiKeys);
 
+  console.log(`📊 Gemini聊天API响应状态: ${response.status} ${response.statusText}`);
+  console.log(`📋 Gemini响应头:`);
+  for (const [key, value] of response.headers.entries()) {
+    console.log(`  ${key}: ${value}`);
+  }
+
   body = response.body;
   if (response.ok) {
     let id = "chatcmpl-" + generateId(); //"chatcmpl-8pMMaqXMK68B3nyDBrapTDrhkHBQK";
     const shared = {};
     if (req.stream) {
+      console.log(`🌊 处理流式响应`);
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
@@ -375,22 +581,37 @@ async function handleCompletions (req, apiKeys) {
         }))
         .pipeThrough(new TextEncoderStream());
     } else {
+      console.log(`📄 处理非流式响应`);
       body = await response.text();
+      console.log(`📦 Gemini原始响应:`);
+      console.log(body);
+
       try {
-        body = JSON.parse(body);
-        if (!body.candidates) {
+        const parsedBody = JSON.parse(body);
+        if (!parsedBody.candidates) {
           throw new Error("Invalid completion object");
         }
+        const transformedResponse = processCompletionsResponse(parsedBody, model, id);
+        console.log(`📦 转换后的OpenAI格式响应:`);
+        console.log(transformedResponse);
+        body = transformedResponse;
       } catch (err) {
         console.error("Error parsing response:", err);
+        console.log(`❌ 响应解析失败，返回原始响应`);
         return new Response(body, fixCors(response)); // output as is
       }
-      body = processCompletionsResponse(body, model, id);
     }
+    console.log(`🔄 ===== Gemini聊天API请求结束 =====\n`);
   }
   return new Response(body, fixCors(response));
 }
 
+/**
+ * 调整JSON Schema属性
+ * 递归处理schema对象，移除不兼容的属性
+ *
+ * @param {any} schemaPart - JSON Schema的一部分
+ */
 const adjustProps = (schemaPart) => {
   if (typeof schemaPart !== "object" || schemaPart === null) {
     return;
@@ -404,6 +625,13 @@ const adjustProps = (schemaPart) => {
     Object.values(schemaPart).forEach(adjustProps);
   }
 };
+/**
+ * 调整JSON Schema以兼容Gemini API
+ * 移除strict属性并调整其他不兼容的属性
+ *
+ * @param {Object} schema - JSON Schema对象
+ * @returns {any} 调整后的schema
+ */
 const adjustSchema = (schema) => {
   const obj = schema[schema.type];
   delete obj.strict;
@@ -438,6 +666,14 @@ const thinkingBudgetMap = {
   medium: 8192,
   high: 24576,
 };
+/**
+ * 转换OpenAI请求配置为Gemini格式
+ * 将OpenAI的参数名映射为Gemini API的参数名
+ *
+ * @param {Object} req - OpenAI格式的请求对象
+ * @returns {Object} Gemini格式的配置对象
+ * @throws {HttpError} 当response_format.type不支持时抛出
+ */
 const transformConfig = (req) => {
   let cfg = {};
   //if (typeof req.stop === "string") { req.stop = [req.stop]; } // no need
@@ -473,6 +709,15 @@ const transformConfig = (req) => {
   return cfg;
 };
 
+/**
+ * 解析图片URL或Data URL
+ * 支持HTTP/HTTPS URL和base64 data URL格式
+ *
+ * @param {string} url - 图片URL或Data URL
+ * @returns {Promise<Object>} 包含mimeType和base64数据的对象
+ * @throws {Error} 当图片获取失败时抛出
+ * @throws {HttpError} 当图片数据格式无效时抛出
+ */
 const parseImg = async (url) => {
   let mimeType, data;
   if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -665,6 +910,13 @@ const transformTools = (req) => {
   return { tools, tool_config };
 };
 
+/**
+ * 转换OpenAI请求为Gemini格式
+ * 整合消息、安全设置、生成配置和工具配置
+ *
+ * @param {Object} req - OpenAI格式的请求对象
+ * @returns {Promise<Object>} Gemini格式的完整请求对象
+ */
 const transformRequest = async (req) => ({
   ...await transformMessages(req.messages),
   safetySettings,
@@ -672,6 +924,12 @@ const transformRequest = async (req) => ({
   ...transformTools(req),
 });
 
+/**
+ * 生成随机ID
+ * 生成29位长度的随机字符串，用于聊天完成ID
+ *
+ * @returns {string} 29位随机字符串
+ */
 const generateId = () => {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
@@ -759,6 +1017,13 @@ const processCompletionsResponse = (data, model, id) => {
 };
 
 const responseLineRE = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
+/**
+ * 解析流式响应数据
+ * 从缓冲区中提取完整的数据行，用于TransformStream
+ *
+ * @param {string} chunk - 接收到的数据块
+ * @param {TransformStreamDefaultController} controller - 流控制器
+ */
 function parseStream (chunk, controller) {
   this.buffer += chunk;
   do {
@@ -768,6 +1033,12 @@ function parseStream (chunk, controller) {
     this.buffer = this.buffer.substring(match[0].length);
   } while (true); // eslint-disable-line no-constant-condition
 }
+/**
+ * 流解析完成时的清理函数
+ * 处理缓冲区中剩余的数据，用于TransformStream的flush阶段
+ *
+ * @param {TransformStreamDefaultController} controller - 流控制器
+ */
 function parseStreamFlush (controller) {
   if (this.buffer) {
     console.error("Invalid data:", this.buffer);
@@ -777,10 +1048,24 @@ function parseStreamFlush (controller) {
 }
 
 const delimiter = "\n\n";
+/**
+ * 生成Server-Sent Events格式的数据行
+ * 添加时间戳并格式化为SSE格式
+ *
+ * @param {Object} obj - 要发送的数据对象
+ * @returns {string} SSE格式的数据行
+ */
 const sseline = (obj) => {
   obj.created = Math.floor(Date.now()/1000);
   return "data: " + JSON.stringify(obj) + delimiter;
 };
+/**
+ * 将Gemini流式响应转换为OpenAI格式
+ * 处理每一行Gemini响应数据，转换为OpenAI兼容的流式格式
+ *
+ * @param {string} line - Gemini响应的一行数据
+ * @param {TransformStreamDefaultController} controller - 流控制器
+ */
 function toOpenAiStream (line, controller) {
   let data;
   try {
@@ -829,6 +1114,12 @@ function toOpenAiStream (line, controller) {
   cand.delta = {};
   this.last[cand.index] = obj;
 }
+/**
+ * OpenAI流转换完成时的清理函数
+ * 发送最后的数据块并结束流，用于TransformStream的flush阶段
+ *
+ * @param {TransformStreamDefaultController} controller - 流控制器
+ */
 function toOpenAiStreamFlush (controller) {
   if (this.last.length > 0) {
     for (const obj of this.last) {
