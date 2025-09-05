@@ -67,29 +67,32 @@ export default {
    * @returns {Promise<Response>} HTTP响应对象，包含OpenAI格式的响应数据
    */
   async fetch (request) {
-    // 📊 OpenAI模式详细请求日志记录
+    // 📊 OpenAI模式核心请求信息
     const url = new URL(request.url);
-    console.log(`\n🤖 ===== OpenAI模式详细请求信息开始 =====`);
-    console.log(`📥 请求方法: ${request.method}`);
-    console.log(`🌐 完整URL: ${request.url}`);
-    console.log(`📍 路径: ${url.pathname}`);
-    console.log(`🔗 查询参数: ${url.search || '无'}`);
+    console.log(`\n🤖 ===== OpenAI模式请求 =====`);
+    console.log(`📥 ${request.method} ${url.pathname}`);
 
-    // 记录所有请求头
-    console.log(`📋 请求头详情:`);
-    for (const [key, value] of request.headers.entries()) {
-      // 对敏感信息进行部分遮蔽
-      if (key.toLowerCase().includes('authorization')) {
-        const maskedValue = value.length > 16 ? `${value.substring(0, 16)}...${value.substring(value.length - 8)}` : value;
-        console.log(`  ${key}: ${maskedValue}`);
-      } else {
-        console.log(`  ${key}: ${value}`);
-      }
+    // 只记录关键请求头
+    const authHeader = request.headers.get('authorization');
+    if (authHeader) {
+      const maskedValue = authHeader.length > 16 ? `${authHeader.substring(0, 16)}...${authHeader.substring(authHeader.length - 8)}` : authHeader;
+      console.log(`🔑 Authorization: ${maskedValue}`);
     }
 
+    // 注释：详细请求头信息（调试时可启用）
+    // console.log(`📋 请求头详情:`);
+    // for (const [key, value] of request.headers.entries()) {
+    //   if (key.toLowerCase().includes('authorization')) {
+    //     const maskedValue = value.length > 16 ? `${value.substring(0, 16)}...${value.substring(value.length - 8)}` : value;
+    //     console.log(`  ${key}: ${maskedValue}`);
+    //   } else {
+    //     console.log(`  ${key}: ${value}`);
+    //   }
+    // }
+
     if (request.method === "OPTIONS") {
-      console.log(`🔧 处理OPTIONS预检请求`);
-      console.log(`🤖 ===== OpenAI模式详细请求信息结束 =====\n`);
+      console.log(`🔧 OPTIONS预检请求`);
+      console.log(`🤖 ===== OpenAI模式请求结束 =====\n`);
       return handleOPTIONS();
     }
     const errHandler = (err) => {
@@ -131,7 +134,7 @@ export default {
       } else {
         console.log(`📦 请求体: 无 (GET请求)`);
       }
-      console.log(`🤖 ===== OpenAI模式详细请求信息结束 =====\n`);
+      console.log(`🤖 ===== OpenAI模式请求结束 =====\n`);
 
       switch (true) {
         case pathname.endsWith("/chat/completions"):
@@ -148,6 +151,11 @@ export default {
           console.log(`📋 处理模型列表请求`);
           assert(request.method === "GET");
           return handleModels(apiKeys.length > 0 ? apiKeys[0] : apiKey)
+            .catch(errHandler);
+        case pathname.endsWith("/audio/speech"):
+          console.log(`🔊 处理语音合成请求`);
+          assert(request.method === "POST");
+          return handleAudioSpeech(requestBody || await request.json(), apiKeys)
             .catch(errHandler);
         default:
           console.log(`❌ 未知的OpenAI端点: ${pathname}`);
@@ -362,6 +370,40 @@ async function handleEmbeddings (req, apiKey) {
 }
 
 /**
+ * 处理语音合成请求 - OpenAI格式转Gemini格式
+ * 注意：Gemini API目前不直接支持语音合成，这里返回适当的错误信息
+ *
+ * @param {Object} req - OpenAI格式的语音合成请求对象
+ * @param {Array<string>} apiKeys - API Key数组
+ * @returns {Promise<Response>} 错误响应，说明不支持语音合成
+ */
+async function handleAudioSpeech(req, apiKeys) {
+  console.log(`\n🔊 ===== 处理语音合成请求 =====`);
+  console.log(`📋 原始请求参数:`);
+  console.log(JSON.stringify(req, null, 2));
+
+  console.log(`❌ Gemini API目前不支持语音合成功能`);
+  console.log(`🔊 ===== 语音合成请求处理结束 =====\n`);
+
+  // 返回标准的OpenAI错误格式
+  const errorResponse = {
+    error: {
+      message: 'Audio speech synthesis is not supported by Gemini API. Please use a different endpoint or service.',
+      type: 'not_supported_error',
+      code: 'audio_speech_not_supported'
+    }
+  };
+
+  return new Response(JSON.stringify(errorResponse), {
+    status: 400,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+/**
  * 增强的fetch函数 - OpenAI模式专用，在保持轮询机制基础上添加超时和故障切换
  * 优化策略：45秒超时，遇到任何错误立即换Key，零延迟切换提升响应速度
  *
@@ -386,15 +428,16 @@ async function enhancedFetch(url, options, apiKeys) {
       const headers = new Headers(options.headers);
       headers.set('x-goog-api-key', selectedKey);
 
-      console.log(`🚀 OpenAI尝试 ${attempt}/${maxRetries} - 轮询选择Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
-      console.log(`📋 请求头详情:`);
-      for (const [key, value] of headers.entries()) {
-        if (key.toLowerCase().includes('key')) {
-          console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
-        } else {
-          console.log(`  ${key}: ${value}`);
-        }
-      }
+      console.log(`🚀 尝试 ${attempt}/${maxRetries} - 使用Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
+      // 注释：详细请求头信息（调试时可启用）
+      // console.log(`📋 请求头详情:`);
+      // for (const [key, value] of headers.entries()) {
+      //   if (key.toLowerCase().includes('key')) {
+      //     console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
+      //   } else {
+      //     console.log(`  ${key}: ${value}`);
+      //   }
+      // }
 
       // 创建超时控制器
       const controller = new AbortController();
@@ -413,11 +456,12 @@ async function enhancedFetch(url, options, apiKeys) {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
-      console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
-      console.log(`📋 响应头:`);
-      for (const [key, value] of response.headers.entries()) {
-        console.log(`  ${key}: ${value}`);
-      }
+      console.log(`📊 响应: ${response.status} ${response.statusText}`);
+      // 注释：详细响应头信息（调试时可启用）
+      // console.log(`📋 响应头:`);
+      // for (const [key, value] of response.headers.entries()) {
+      //   console.log(`  ${key}: ${value}`);
+      // }
 
       if (response.ok) {
         console.log(`✅ OpenAI请求成功 - 耗时: ${duration}ms, 状态: ${response.status}, Key: ${selectedKey.substring(0, 8)}...`);
@@ -552,11 +596,12 @@ async function handleCompletions (req, apiKeys) {
     body: JSON.stringify(body),
   }, apiKeys);
 
-  console.log(`📊 Gemini聊天API响应状态: ${response.status} ${response.statusText}`);
-  console.log(`📋 Gemini响应头:`);
-  for (const [key, value] of response.headers.entries()) {
-    console.log(`  ${key}: ${value}`);
-  }
+  console.log(`📊 Gemini API响应: ${response.status} ${response.statusText}`);
+  // 注释：详细Gemini响应头信息（调试时可启用）
+  // console.log(`📋 Gemini响应头:`);
+  // for (const [key, value] of response.headers.entries()) {
+  //   console.log(`  ${key}: ${value}`);
+  // }
 
   body = response.body;
   if (response.ok) {

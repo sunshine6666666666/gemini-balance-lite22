@@ -77,15 +77,16 @@ async function enhancedFetch(url, options, apiKeys) {
       const headers = new Headers(options.headers);
       headers.set('x-goog-api-key', selectedKey);
 
-      console.log(`🚀 尝试 ${attempt}/${maxRetries} - 轮询选择Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
-      console.log(`📋 请求头详情:`);
-      for (const [key, value] of headers.entries()) {
-        if (key.toLowerCase().includes('key')) {
-          console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
-        } else {
-          console.log(`  ${key}: ${value}`);
-        }
-      }
+      console.log(`🚀 尝试 ${attempt}/${maxRetries} - 使用Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`);
+      // 注释：详细请求头信息（调试时可启用）
+      // console.log(`📋 请求头详情:`);
+      // for (const [key, value] of headers.entries()) {
+      //   if (key.toLowerCase().includes('key')) {
+      //     console.log(`  ${key}: ${value.substring(0, 8)}...${value.substring(value.length - 8)}`);
+      //   } else {
+      //     console.log(`  ${key}: ${value}`);
+      //   }
+      // }
 
       // 创建超时控制器
       const controller = new AbortController();
@@ -104,11 +105,12 @@ async function enhancedFetch(url, options, apiKeys) {
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
 
-      console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
-      console.log(`📋 响应头:`);
-      for (const [key, value] of response.headers.entries()) {
-        console.log(`  ${key}: ${value}`);
-      }
+      console.log(`📊 响应: ${response.status} ${response.statusText}`);
+      // 注释：详细响应头信息（调试时可启用）
+      // console.log(`📋 响应头:`);
+      // for (const [key, value] of response.headers.entries()) {
+      //   console.log(`  ${key}: ${value}`);
+      // }
 
       if (response.ok) {
         console.log(`✅ 请求成功 - 耗时: ${duration}ms, 状态: ${response.status}, Key: ${selectedKey.substring(0, 8)}...`);
@@ -163,30 +165,35 @@ export async function handleRequest(request) {
   const pathname = url.pathname;
   const search = url.search;
 
-  // 📊 详细请求日志记录
-  console.log(`\n🔍 ===== 详细请求信息开始 =====`);
-  console.log(`📥 请求方法: ${request.method}`);
-  console.log(`🌐 完整URL: ${request.url}`);
-  console.log(`📍 路径: ${pathname}`);
-  console.log(`🔗 查询参数: ${search || '无'}`);
-  console.log(`🏠 主机: ${url.host}`);
-  console.log(`🔒 协议: ${url.protocol}`);
+  // 📊 LLM请求核心信息记录
+  console.log(`\n🔍 ===== LLM请求信息 =====`);
+  console.log(`📥 ${request.method} ${pathname}`);
+  console.log(`🌐 来源: ${request.headers.get('origin') || request.headers.get('referer') || '未知'}`);
 
-  // 记录所有请求头
-  console.log(`📋 请求头详情:`);
+  // 只记录关键请求头
+  console.log(`📋 关键请求头:`);
   for (const [key, value] of request.headers.entries()) {
-    // 对敏感信息进行部分遮蔽
-    if (key.toLowerCase().includes('key') || key.toLowerCase().includes('authorization')) {
-      const maskedValue = value.length > 16 ? `${value.substring(0, 8)}...${value.substring(value.length - 8)}` : value;
-      console.log(`  ${key}: ${maskedValue}`);
-    } else {
-      console.log(`  ${key}: ${value}`);
+    // 只记录与API和内容相关的头
+    if (key.toLowerCase().includes('key') ||
+        key.toLowerCase().includes('authorization') ||
+        key.toLowerCase() === 'content-type' ||
+        key.toLowerCase() === 'user-agent') {
+      if (key.toLowerCase().includes('key') || key.toLowerCase().includes('authorization')) {
+        const maskedValue = value.length > 16 ? `${value.substring(0, 8)}...${value.substring(value.length - 8)}` : value;
+        console.log(`  ${key}: ${maskedValue}`);
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
     }
+    // 注释：记录Vercel相关信息（部署环境、地区等）
+    // else if (key.startsWith('x-vercel-')) {
+    //   console.log(`  ${key}: ${value} // Vercel部署信息`);
+    // }
   }
 
   if (pathname === '/' || pathname === '/index.html') {
-    console.log(`🏠 处理首页请求`);
-    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
+    console.log(`🏠 首页访问`);
+    console.log(`🔍 ===== LLM请求信息结束 =====\n`);
     return new Response('Proxy is Running!  More Details: https://github.com/sunshine6666666666/gemini-balance-lite22', {
       status: 200,
       headers: { 'Content-Type': 'text/html' }
@@ -194,15 +201,15 @@ export async function handleRequest(request) {
   }
 
   if (pathname === '/verify' && request.method === 'POST') {
-    console.log(`🔍 处理API Key验证请求`);
-    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
+    console.log(`🔍 API Key验证请求`);
+    console.log(`🔍 ===== LLM请求信息结束 =====\n`);
     return handleVerification(request);
   }
 
   // 处理OpenAI格式请求
-  if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
-    console.log(`🤖 检测到OpenAI格式请求，转发到OpenAI兼容模块`);
-    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
+  if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models") || url.pathname.endsWith("/audio/speech")) {
+    console.log(`🤖 转发到OpenAI兼容模块`);
+    console.log(`🔍 ===== LLM请求信息结束 =====\n`);
     return openai.fetch(request);
   }
 
@@ -298,7 +305,7 @@ export async function handleRequest(request) {
     } else {
       console.log(`📦 请求体: 无`);
     }
-    console.log(`🔍 ===== 详细请求信息结束 =====\n`);
+    console.log(`🔍 ===== LLM请求信息结束 =====\n`);
 
     // 使用增强的fetch函数
     const response = await enhancedFetch(targetUrl, {
@@ -310,12 +317,14 @@ export async function handleRequest(request) {
     console.log(`✅ Gemini请求成功 - 状态: ${response.status}`);
 
     // 记录响应详情
-    console.log(`\n📤 ===== 详细响应信息开始 =====`);
-    console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
-    console.log(`📋 原始响应头:`);
-    for (const [key, value] of response.headers.entries()) {
-      console.log(`  ${key}: ${value}`);
-    }
+    console.log(`\n📤 ===== LLM响应信息 =====`);
+    console.log(`📊 最终响应: ${response.status} ${response.statusText}`);
+
+    // 注释：详细响应头信息（调试时可启用）
+    // console.log(`📋 原始响应头:`);
+    // for (const [key, value] of response.headers.entries()) {
+    //   console.log(`  ${key}: ${value}`);
+    // }
 
     // 处理响应头
     const responseHeaders = new Headers(response.headers);
@@ -326,10 +335,11 @@ export async function handleRequest(request) {
     responseHeaders.set('Referrer-Policy', 'no-referrer');
     responseHeaders.set('X-Processed-By', 'Enhanced-Gemini-Proxy');
 
-    console.log(`📋 处理后响应头:`);
-    for (const [key, value] of responseHeaders.entries()) {
-      console.log(`  ${key}: ${value}`);
-    }
+    // 注释：处理后响应头信息（调试时可启用）
+    // console.log(`📋 处理后响应头:`);
+    // for (const [key, value] of responseHeaders.entries()) {
+    //   console.log(`  ${key}: ${value}`);
+    // }
 
     // 如果是非流式响应，记录响应体
     if (!response.body || response.headers.get('content-type')?.includes('application/json')) {
@@ -353,7 +363,7 @@ export async function handleRequest(request) {
     } else {
       console.log(`📦 响应体: 流式响应，无法预览`);
     }
-    console.log(`📤 ===== 详细响应信息结束 =====\n`);
+    console.log(`📤 ===== LLM响应信息结束 =====\n`);
 
     return new Response(response.body, {
       status: response.status,
