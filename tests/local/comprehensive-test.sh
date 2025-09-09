@@ -84,7 +84,7 @@ test_http_request() {
     log_test_start "$test_name"
     
     local url="${BASE_URL}${endpoint}"
-    local curl_cmd="curl -s -w '%{http_code}|%{time_total}' --max-time $timeout"
+    local curl_cmd="curl -s -w '\\n%{http_code}\\n%{time_total}' --max-time $timeout"
     
     if [ "$method" = "POST" ]; then
         curl_cmd="$curl_cmd -X POST"
@@ -108,12 +108,24 @@ test_http_request() {
     local http_code
     local response_time
     local response_body
-    
-    if [ $exit_code -eq 0 ] && [[ "$response" == *"|"* ]]; then
-        response_body=$(echo "$response" | sed 's/|[^|]*$//')
-        local status_and_time=$(echo "$response" | grep -o '[^|]*$')
-        http_code=$(echo "$status_and_time" | cut -d'|' -f1)
-        response_time=$(echo "$status_and_time" | cut -d'|' -f2)
+
+    if [ $exit_code -eq 0 ]; then
+        # 使用换行符分割响应
+        local lines=($(echo "$response"))
+        local line_count=${#lines[@]}
+
+        if [ $line_count -ge 2 ]; then
+            # 最后一行是响应时间，倒数第二行是状态码
+            response_time="${lines[$((line_count-1))]}"
+            http_code="${lines[$((line_count-2))]}"
+
+            # 响应体是除了最后两行的所有内容
+            response_body=$(echo "$response" | head -n -2)
+        else
+            http_code="000"
+            response_time="0"
+            response_body="$response"
+        fi
     else
         http_code="000"
         response_time="0"
