@@ -7,7 +7,10 @@
 
 # 配置
 BASE_URL="http://localhost:3000"
-TEST_API_KEY="test_key_1,test_key_2"
+# 从.env.local读取真实的API Key进行测试
+TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.local | cut -d'=' -f2)
+FIRST_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f1)
+TEST_API_KEY="$FIRST_KEY"
 LOG_CAPTURE_FILE="tests/local/captured-logs-$(date +%Y%m%d-%H%M%S).log"
 PERFORMANCE_LOG="tests/local/performance-$(date +%Y%m%d-%H%M%S).log"
 
@@ -100,7 +103,7 @@ performance_test() {
     
     local start_time=$(date +%s.%N)
     
-    local response=$(curl -s -w '%{http_code}|%{time_total}|%{time_connect}|%{time_starttransfer}' \
+    local response=$(curl.exe -s -w '%{http_code}|%{time_total}|%{time_connect}|%{time_starttransfer}' \
         --max-time 30 \
         -X POST \
         -H "Authorization: Bearer $TEST_API_KEY" \
@@ -156,7 +159,7 @@ test_log_format_validation() {
     
     capture_server_logs \
         "结构化日志格式验证" \
-        "curl -s -X POST -H 'Authorization: Bearer $TEST_API_KEY' -H 'Content-Type: application/json' -d '$chat_data' '$BASE_URL/chat/completions'" \
+        "curl.exe -s -X POST -H 'Authorization: Bearer $TEST_API_KEY' -H 'Content-Type: application/json' -d '$chat_data' '$BASE_URL/chat/completions'" \
         "$expected_patterns"
 }
 
@@ -222,7 +225,7 @@ test_concurrent_performance() {
     # 启动并发请求
     for i in {1..5}; do
         (
-            curl -s -w '%{time_total}' \
+            curl.exe -s -w '%{time_total}' \
                 -X POST \
                 -H "Authorization: Bearer $TEST_API_KEY" \
                 -H "Content-Type: application/json" \
@@ -303,7 +306,7 @@ main() {
     log ""
     
     # 检查服务是否运行
-    if ! curl -s --max-time 5 "$BASE_URL" > /dev/null; then
+    if ! curl.exe -s --max-time 5 "$BASE_URL" > /dev/null; then
         log "${RED}错误: 无法连接到 $BASE_URL${NC}"
         log "请确保本地服务正在运行"
         exit 1

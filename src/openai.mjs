@@ -8,7 +8,7 @@
  * @许可证: MIT License
  */
 
-import { Buffer } from "node:buffer";
+// import { Buffer } from "node:buffer"; // Edge Runtime不支持Node.js Buffer
 
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
@@ -679,7 +679,10 @@ const parseImg = async (url) => {
         throw new Error(`${response.status} ${response.statusText} (${url})`);
       }
       mimeType = response.headers.get("content-type");
-      data = Buffer.from(await response.arrayBuffer()).toString("base64");
+      // 使用Web标准API替代Node.js Buffer
+      const arrayBuffer = await response.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      data = btoa(String.fromCharCode(...uint8Array));
     } catch (err) {
       throw new Error("Error fetching image: " + err.toString());
     }

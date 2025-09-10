@@ -7,7 +7,7 @@
  */
 
 import { handleVerification } from './verify_keys.js';
-// import openai from './openai.mjs'; // 暂时注释掉避免循环依赖
+import openai from './openai.mjs';
 
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
@@ -68,17 +68,8 @@ export async function handleRequest(request) {
     const isOpenAIRequest = openaiEndpoints.some(endpoint => pathname.endsWith(endpoint));
 
     if (isOpenAIRequest) {
-        structuredLog('info', logPrefix, '步骤 4', '检测到OpenAI格式请求');
-        // TODO: 重新实现OpenAI兼容处理
-        return new Response(JSON.stringify({
-            error: {
-                message: 'OpenAI compatibility temporarily disabled during refactoring',
-                type: 'TemporaryDisabled'
-            }
-        }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        structuredLog('info', logPrefix, '步骤 4', '转发到OpenAI兼容模块');
+        return openai.fetch(request);
     }
 
     // 步骤 5: 构建Gemini API目标URL

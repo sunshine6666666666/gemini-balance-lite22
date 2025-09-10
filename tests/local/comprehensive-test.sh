@@ -7,8 +7,13 @@
 
 # 测试配置
 BASE_URL="http://localhost:3000"
-TEST_API_KEY="test_key_1,test_key_2,test_key_3"  # 多个API Key用于负载均衡测试
-SINGLE_API_KEY="test_key_1"
+# 从.env.local读取真实的API Key进行测试
+TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.local | cut -d'=' -f2)
+FIRST_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f1)
+SECOND_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f2)
+
+TEST_API_KEY="$FIRST_KEY,$SECOND_KEY"  # 多个API Key用于负载均衡测试
+SINGLE_API_KEY="$FIRST_KEY"
 INVALID_API_KEY="invalid_key_123"
 TIMEOUT=30
 LONG_TIMEOUT=60
@@ -84,7 +89,7 @@ test_http_request() {
     log_test_start "$test_name"
     
     local url="${BASE_URL}${endpoint}"
-    local curl_cmd="curl -s -w '\\n%{http_code}\\n%{time_total}' --max-time $timeout"
+    local curl_cmd="curl.exe -s -w '\\n%{http_code}' --max-time $timeout"
     
     if [ "$method" = "POST" ]; then
         curl_cmd="$curl_cmd -X POST"
@@ -106,29 +111,20 @@ test_http_request() {
     
     # 解析响应
     local http_code
-    local response_time
     local response_body
 
     if [ $exit_code -eq 0 ]; then
-        # 使用换行符分割响应
-        local lines=($(echo "$response"))
-        local line_count=${#lines[@]}
+        # 简单解析：最后一行是状态码，其余是响应体
+        http_code=$(echo "$response" | tail -n 1)
+        response_body=$(echo "$response" | head -n -1)
 
-        if [ $line_count -ge 2 ]; then
-            # 最后一行是响应时间，倒数第二行是状态码
-            response_time="${lines[$((line_count-1))]}"
-            http_code="${lines[$((line_count-2))]}"
-
-            # 响应体是除了最后两行的所有内容
-            response_body=$(echo "$response" | head -n -2)
-        else
+        # 验证状态码是否为数字
+        if ! [[ "$http_code" =~ ^[0-9]+$ ]]; then
             http_code="000"
-            response_time="0"
             response_body="$response"
         fi
     else
         http_code="000"
-        response_time="0"
         response_body="$response"
     fi
     
@@ -137,7 +133,7 @@ test_http_request() {
         echo "请求: $method $url"
         echo "期望状态码: $expected_status"
         echo "实际状态码: $http_code"
-        echo "响应时间: ${response_time}s"
+        echo "响应时间: N/A"
         echo "响应体: $response_body"
     } >> "$LOG_FILE"
     
@@ -507,7 +503,7 @@ main() {
     log ""
     
     # 检查服务是否运行
-    if ! curl -s --max-time 5 "$BASE_URL" > /dev/null; then
+    if ! curl.exe -s --max-time 5 "$BASE_URL" > /dev/null; then
         log "${RED}错误: 无法连接到 $BASE_URL${NC}"
         log "请确保本地服务正在运行: npm run dev"
         exit 1
