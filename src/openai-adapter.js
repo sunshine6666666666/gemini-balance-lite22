@@ -459,20 +459,34 @@ async function handleCompletions(req, apiKeys, reqId) {
         });
     }
 
-    // 记录请求详情 - 直接使用console.log测试
-    console.log(`[INFO] [ReqID:${reqId}] 📋 请求详情: "${req.messages?.[0]?.content || '无消息'}" | 消息数:${req.messages?.length || 0} | 模型:${model} | 温度:${req.temperature || 'default'} | 最大Token:${req.max_tokens || 'default'} | 类型:${req.stream ? '流式' : '非流式'}`);
-
-    try {
-        console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录请求详情`);
-        logRequestDetails(reqId, req, model);
-        console.log(`[DEBUG] [ReqID:${reqId}] ✅ 请求详情记录完成`);
-    } catch (err) {
-        console.error(`[ERROR] [ReqID:${reqId}] ❌ 请求详情记录失败:`, err);
+    // 记录详细的LLM请求信息
+    console.log(`📥 收到请求: POST /v1/chat/completions`);
+    console.log(`✅ 处理API请求: POST /v1/chat/completions`);
+    console.log(`🔍 ===== LLM请求信息 =====`);
+    console.log(`📥 POST /v1/chat/completions`);
+    console.log(`🌐 来源: 未知`);
+    console.log(`📋 关键请求头:`);
+    console.log(`content-type: application/json`);
+    console.log(`user-agent: unknown`);
+    if (apiKeys.length > 0) {
+        const maskedKey = `${apiKeys[0].substring(0, 8)}...${apiKeys[0].slice(-8)}`;
+        console.log(`x-goog-api-key: ${maskedKey}`);
     }
 
     // 步骤 3: 转换请求格式
     let body = await transformRequest(req);
     const extra = req.extra_body?.google;
+
+    // 记录请求体详情
+    const targetUrl = `${GEMINI_API.BASE_URL}/${GEMINI_API.API_VERSION}/models/${model}:${req.stream ? "streamGenerateContent" : "generateContent"}`;
+    console.log(`🎯 目标URL: ${targetUrl}`);
+    if (apiKeys.length > 1) {
+        console.log(`✅ 使用传入的多个API Key (${apiKeys.length}个)`);
+    }
+    console.log(`🎯 开始请求 - URL: ${targetUrl}, 可用Keys: ${apiKeys.length}`);
+    console.log(`📦 请求体内容:`);
+    console.log(JSON.stringify(body, null, 2));
+    console.log(`🔍 ===== LLM请求信息结束 =====`);
     if (extra) {
         if (extra.safety_settings) {
             body.safetySettings = extra.safety_settings;
@@ -567,25 +581,33 @@ async function handleCompletions(req, apiKeys, reqId) {
   // 记录请求摘要
   logRequest(reqId, 'POST', '/v1/chat/completions', model, apiKeys[0], response.status, totalDuration);
 
-  // 记录响应内容详情 - 直接使用console.log测试
-  if (response.ok && body && typeof body === 'object') {
-    const content = body.choices?.[0]?.message?.content || body.candidates?.[0]?.content?.parts?.[0]?.text || '无内容';
-    const contentPreview = content.length > 100 ? content.substring(0, 100) + '...' : content;
-    const usageInfo = body.usage ? `输入:${body.usage.prompt_tokens} 输出:${body.usage.completion_tokens} 总计:${body.usage.total_tokens}` : '无使用统计';
-    console.log(`[INFO] [ReqID:${reqId}] 📤 响应内容: "${contentPreview}" | 模型: ${model} | Token使用: ${usageInfo}`);
-  }
+  // 记录详细的LLM响应信息
+  console.log(`📊 响应: ${response.status} OK`);
+  console.log(`✅ 请求成功 - 耗时: ${totalDuration}ms, 状态: ${response.status}`);
+  console.log(`✅ Gemini请求成功 - 状态: ${response.status}`);
+  console.log(`📤 ===== LLM响应信息 =====`);
+  console.log(`📊 最终响应: ${response.status} OK`);
+  console.log(`📦 响应体内容:`);
 
+  // 确保能够正确解析和显示响应体
+  let responseBodyForLog = null;
   try {
-    console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录响应内容`);
-    if (response.ok && body && typeof body === 'object') {
-      logResponseContent(reqId, body, model, body.usage);
-      console.log(`[DEBUG] [ReqID:${reqId}] ✅ 响应内容记录完成`);
+    if (typeof body === 'string') {
+      responseBodyForLog = JSON.parse(body);
+    } else if (typeof body === 'object') {
+      responseBodyForLog = body;
     } else {
-      console.log(`[DEBUG] [ReqID:${reqId}] ⚠️ 响应内容记录跳过: ok=${response.ok}, body=${typeof body}`);
+      responseBodyForLog = { error: '无法解析响应体', type: typeof body };
     }
-  } catch (err) {
-    console.error(`[ERROR] [ReqID:${reqId}] ❌ 响应内容记录失败:`, err);
+    console.log(JSON.stringify(responseBodyForLog, null, 2));
+  } catch (e) {
+    console.log(`[响应体解析失败: ${e.message}]`);
+    console.log(`原始响应体类型: ${typeof body}`);
+    if (typeof body === 'string') {
+      console.log(`原始响应体内容: ${body.substring(0, 500)}...`);
+    }
   }
+  console.log(`📤 ===== LLM响应信息结束 =====`);
 
   return new Response(body, fixCors(response));
 }
