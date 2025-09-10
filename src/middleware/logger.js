@@ -36,7 +36,7 @@ function log(level, reqId, emoji, message, data = null) {
     switch (level) {
         case 'ERROR': console.error(logMessage); break;
         case 'WARN': console.warn(logMessage); break;
-        default: console.log(logMessage); break;
+
     }
 }
 
@@ -100,6 +100,3 @@ export function logWarning(reqId, operation, message, data = null) {
 export function logDebug(reqId, operation, message, data = null) {
     log('DEBUG', reqId, '🔍', `${operation}: ${message}`, data);
 }
-
-
-

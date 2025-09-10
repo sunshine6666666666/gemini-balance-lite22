@@ -12,12 +12,10 @@
 
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
-import { selectApiKeyBalanced } from './core/load-balancer.js';
-import { validateTrustedApiKey, getEffectiveApiKeys, maskApiKey } from './core/security.js';
-import { generateRequestId, logRequest, logLoadBalance, logFormatConversion, logPerformance, logError, logWarning, logDebug } from './middleware/logger.js';
-import { addCorsHeaders } from './middleware/cors.js';
-import { config, GEMINI_API, MODEL_CONFIG, OPENAI_ENDPOINTS } from './config/index.js';
-import { safeJsonParse, safeJsonStringify } from './utils/index.js';
+import { validateTrustedApiKey } from './core/security.js';
+import { logRequest, logError, logWarning } from './middleware/logger.js';
+import { GEMINI_API, MODEL_CONFIG, OPENAI_ENDPOINTS } from './config/index.js';
+import { safeJsonStringify } from './utils/index.js';
 
 /**
  * @功能概述: OpenAI兼容API处理器主要导出对象
@@ -49,30 +47,24 @@ export default {
         }
 
         const errHandler = (err) => {
-            structuredLog('error', logPrefix, 'ERROR', `请求处理失败: ${err.message}`);
-            logError(err, reqId, 'OpenAI fetch', { url: url.pathname });
+            logError(reqId, 'OpenAI请求处理', err);
             return new Response(err.message, fixCors({ status: err.status ?? 500 }));
         };
 
         try {
-            // 步骤 2: 提取API Key
+            // 提取API Key
             const auth = request.headers.get("Authorization");
             let apiKey = auth?.split(" ")[1];
             let apiKeys = [];
 
             if (apiKey && apiKey.includes(',')) {
-                // 解析多个API Key（逗号分隔）
                 apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
-                structuredLog('info', logPrefix, '步骤 2.1', `发现多个API Key: ${apiKeys.length}个`);
             } else if (apiKey) {
-                // 单个API Key也放入数组
                 apiKeys = [apiKey];
-                structuredLog('info', logPrefix, '步骤 2.2', '发现单个API Key');
             }
 
-            // 步骤 3: 验证API Key
+            // 验证API Key
             if (apiKeys.length === 0) {
-                structuredLog('error', logPrefix, '步骤 3[ERROR]', '未找到API Key');
                 throw new HttpError("Missing API Key", 401);
             }
 
@@ -84,50 +76,40 @@ export default {
 
             const { pathname } = url;
 
-            // 步骤 4: 记录请求体（如果有）
+            // 解析请求体
             let requestBody = null;
             if (request.method === "POST") {
                 try {
                     const requestClone = request.clone();
                     requestBody = await requestClone.json();
-                    structuredLog('info', logPrefix, '步骤 4', '请求体JSON解析成功');
                 } catch (e) {
-                    structuredLog('warn', logPrefix, '步骤 4[WARN]', '请求体JSON解析失败');
+                    logWarning(reqId, '请求体解析', '请求体JSON解析失败');
                 }
-            } else {
-                structuredLog('info', logPrefix, '步骤 4', 'GET请求，无请求体');
             }
 
-            // 步骤 5: 路由到相应的处理函数
-            structuredLog('info', logPrefix, '步骤 5', `路由到端点处理器: ${pathname}`);
-
+            // 路由到相应的处理函数
             switch (true) {
                 case pathname.endsWith(OPENAI_ENDPOINTS.CHAT_COMPLETIONS):
-                    structuredLog('info', logPrefix, '步骤 5.1', '处理聊天完成请求');
                     assert(request.method === "POST");
-                    return handleCompletions(requestBody || await request.json(), apiKeys)
+                    return handleCompletions(requestBody || await request.json(), apiKeys, reqId)
                         .catch(errHandler);
 
                 case pathname.endsWith(OPENAI_ENDPOINTS.EMBEDDINGS):
-                    structuredLog('info', logPrefix, '步骤 5.2', '处理文本嵌入请求');
                     assert(request.method === "POST");
                     return handleEmbeddings(requestBody || await request.json(), apiKeys.length > 0 ? apiKeys[0] : apiKey)
                         .catch(errHandler);
 
                 case pathname.endsWith(OPENAI_ENDPOINTS.MODELS):
-                    structuredLog('info', logPrefix, '步骤 5.3', '处理模型列表请求');
                     assert(request.method === "GET");
                     return handleModels(apiKeys.length > 0 ? apiKeys[0] : apiKey)
                         .catch(errHandler);
 
                 case pathname.endsWith(OPENAI_ENDPOINTS.AUDIO_SPEECH):
-                    structuredLog('info', logPrefix, '步骤 5.4', '处理语音合成请求');
                     assert(request.method === "POST");
                     return handleAudioSpeech(requestBody || await request.json(), apiKeys)
                         .catch(errHandler);
 
                 default:
-                    structuredLog('error', logPrefix, '步骤 5[ERROR]', `未知的OpenAI端点: ${pathname}`);
                     throw new HttpError("404 Not Found", 404);
             }
         } catch (err) {
@@ -354,20 +336,16 @@ async function handleAudioSpeech(req, apiKeys) {
  * @支持功能: 流式和非流式响应、工具调用、安全设置
  * @throws {HttpError} 当请求格式错误或API Key验证失败时抛出
  */
-async function handleCompletions(req, apiKeys) {
-    const reqId = Date.now().toString(); // 生成唯一请求ID
-    const logPrefix = createLogPrefix('openai.mjs', 'OpenAI兼容器', 'handleCompletions', reqId);
+async function handleCompletions(req, apiKeys, reqId) {
+    const startTime = Date.now();
 
-    structuredLog('info', logPrefix, '步骤 1', '开始处理聊天完成请求');
-
-    // 步骤 1: 智能API Key管理
+    // 智能API Key管理
     if (apiKeys.length <= 1) {
         const inputApiKey = apiKeys[0];
-        structuredLog('info', logPrefix, '步骤 1.1', `单Key模式，检查白名单验证`);
 
         // 白名单验证
         if (!validateTrustedApiKey(inputApiKey)) {
-            structuredLog('warn', logPrefix, '步骤 1.1[SECURITY]', 'API Key未通过白名单验证');
+            logWarning(reqId, 'API Key验证', 'API Key未通过白名单验证');
             return new Response(
                 safeJsonStringify({
                     error: {
@@ -387,16 +365,11 @@ async function handleCompletions(req, apiKeys) {
         const backupKeys = process.env.BACKUP_API_KEYS;
         if (backupKeys) {
             const backupKeyArray = backupKeys.split(',').map(k => k.trim()).filter(k => k);
-            structuredLog('info', logPrefix, '步骤 1.2[SUCCESS]', `启用备用Key池 (${backupKeyArray.length}个)`);
             apiKeys = backupKeyArray;
-        } else {
-            structuredLog('warn', logPrefix, '步骤 1.3[WARN]', '未配置备用Key池，继续使用单Key');
         }
-    } else {
-        structuredLog('info', logPrefix, '步骤 1', `多Key模式，使用${apiKeys.length}个API Key`);
     }
 
-    // 步骤 2: 处理模型名称
+    // 处理模型名称
     let model = MODEL_CONFIG.DEFAULT_MODEL;
     switch (true) {
         case typeof req.model !== "string":
@@ -410,13 +383,10 @@ async function handleCompletions(req, apiKeys) {
             model = req.model;
             break;
         default:
-            // 检查模型映射
             if (MODEL_CONFIG.MODEL_MAPPING[req.model]) {
                 model = MODEL_CONFIG.MODEL_MAPPING[req.model];
-                structuredLog('info', logPrefix, '步骤 2.1', `模型映射: ${req.model} -> ${model}`);
             }
     }
-    structuredLog('info', logPrefix, '步骤 2', `使用模型: ${model}`);
 
     // 步骤 3: 转换请求格式
     let body = await transformRequest(req);
@@ -431,7 +401,7 @@ async function handleCompletions(req, apiKeys) {
         if (extra.thinking_config) {
             body.generationConfig.thinkingConfig = extra.thinking_config;
         }
-        structuredLog('info', logPrefix, '步骤 3.1', '应用额外的Google配置');
+
     }
 
     // 步骤 4: 处理搜索工具
@@ -443,7 +413,7 @@ async function handleCompletions(req, apiKeys) {
         case req.tools?.some(tool => tool.function?.name === 'googleSearch'):
             body.tools = body.tools || [];
             body.tools.push({googleSearch: {}});
-            structuredLog('info', logPrefix, '步骤 4', '添加Google搜索工具');
+
     }
 
     // 步骤 5: 构建请求URL
@@ -451,22 +421,18 @@ async function handleCompletions(req, apiKeys) {
     let url = `${GEMINI_API.BASE_URL}/${GEMINI_API.API_VERSION}/models/${model}:${TASK}`;
     if (req.stream) {
         url += "?alt=sse";
-        structuredLog('info', logPrefix, '步骤 5', '配置流式响应');
     }
 
-    structuredLog('info', logPrefix, '步骤 5', `构建请求URL: ${url}`);
-    structuredLog('info', logPrefix, '步骤 5.1', `可用API Key数量: ${apiKeys.length}`);
-
-    // 步骤 6: 发送Gemini API请求
-    const startTime = Date.now();
+    // 发送Gemini API请求
+    const apiStartTime = Date.now();
     const response = await enhancedFetch(url, {
         method: "POST",
         headers: makeHeaders(apiKeys[0], { "Content-Type": "application/json" }), // 临时使用第一个key，会被enhancedFetch替换
         body: safeJsonStringify(body),
     }, apiKeys, 'openai');
 
-    const duration = Date.now() - startTime;
-    structuredLog('info', logPrefix, '步骤 6[SUCCESS]', `Gemini API响应: ${response.status}, 耗时: ${duration}ms`);
+    const duration = Date.now() - apiStartTime;
+    const totalDuration = Date.now() - startTime;
   // 注释：详细Gemini响应头信息（调试时可启用）
 
   // for (const [key, value] of response.headers.entries()) {
@@ -515,6 +481,10 @@ async function handleCompletions(req, apiKeys) {
     }
 
   }
+
+  // 记录请求摘要
+  logRequest(reqId, 'POST', '/v1/chat/completions', model, apiKeys[0], response.status, totalDuration);
+
   return new Response(body, fixCors(response));
 }
 

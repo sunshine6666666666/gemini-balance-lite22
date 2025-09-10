@@ -36,6 +36,12 @@ const REMOVE_PATTERNS = [
     // 删除负载均衡详细日志（保留关键信息）
     /console\.log\(.*时间窗口计算/,
     /console\.log\(.*选中索引.*时间片大小/,
+    // 删除structuredLog调用
+    /structuredLog\(/,
+    // 删除createLogPrefix调用
+    /createLogPrefix\(/,
+    // 删除logPrefix相关的行
+    /logPrefix\s*=/,
 ];
 
 /**
