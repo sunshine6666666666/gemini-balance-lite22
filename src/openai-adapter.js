@@ -97,9 +97,11 @@ export default {
                 logDebug(reqId, '请求体解析', '开始解析POST请求体');
                 try {
                     const requestClone = request.clone();
-                    // 先获取原始文本，检查编码
-                    const requestText = await requestClone.text();
-                    console.log(`🔍 原始请求体文本: ${requestText}`);
+
+                    // 使用ArrayBuffer确保正确的UTF-8编码处理
+                    const requestBuffer = await requestClone.arrayBuffer();
+                    const requestText = new TextDecoder('utf-8').decode(requestBuffer);
+                    console.log(`🔍 原始请求体文本(UTF-8): ${requestText}`);
 
                     requestBody = JSON.parse(requestText);
                     logDebug(reqId, '请求体解析', `请求体解析成功，模型: ${requestBody?.model || 'unknown'}`);
