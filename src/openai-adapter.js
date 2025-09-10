@@ -252,7 +252,9 @@ async function handleModels (apiKey) {
 
   let { body } = response;
   if (response.ok) {
-    const responseText = await response.text();
+    // 使用ArrayBuffer确保正确的UTF-8编码处理
+    const responseBuffer = await response.arrayBuffer();
+    const responseText = new TextDecoder('utf-8').decode(responseBuffer);
 
     const { models } = JSON.parse(responseText);
     const transformedBody = {
@@ -320,7 +322,9 @@ async function handleEmbeddings (req, apiKey) {
 
   let { body } = response;
   if (response.ok) {
-    const responseText = await response.text();
+    // 使用ArrayBuffer确保正确的UTF-8编码处理
+    const responseBuffer = await response.arrayBuffer();
+    const responseText = new TextDecoder('utf-8').decode(responseBuffer);
 
     const { embeddings } = JSON.parse(responseText);
     const transformedBody = {
@@ -569,7 +573,9 @@ async function handleCompletions(req, apiKeys, reqId) {
         .pipeThrough(new TextEncoderStream());
     } else {
 
-      body = await response.text();
+      // 使用ArrayBuffer确保正确的UTF-8编码处理
+      const responseBuffer = await response.arrayBuffer();
+      body = new TextDecoder('utf-8').decode(responseBuffer);
 
       try {
         const parsedBody = JSON.parse(body);

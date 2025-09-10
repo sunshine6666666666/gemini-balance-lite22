@@ -14,7 +14,7 @@ $headers = @{
 }
 
 # 测试URL
-$url = 'https://gemini-balance-lite22-fmdafo5qs-showlin666s-projects.vercel.app/v1/chat/completions'
+$url = 'https://gemini-balance-lite22-f9xcnk27r-showlin666s-projects.vercel.app/v1/chat/completions'
 
 Write-Host "🌍 开始多语言UTF-8编码测试" -ForegroundColor Green
 Write-Host "目标URL: $url" -ForegroundColor Cyan

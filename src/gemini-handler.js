@@ -148,7 +148,9 @@ export async function handleRequest(request) {
         // 处理请求体内容
         let requestBodyContent = null;
         if (request.body) {
-            requestBodyContent = await request.text();
+            // 使用ArrayBuffer确保正确的UTF-8编码处理
+            const requestBuffer = await request.arrayBuffer();
+            requestBodyContent = new TextDecoder('utf-8').decode(requestBuffer);
             logDebug(reqId, '请求体处理', `请求体长度: ${requestBodyContent.length} 字符`);
             // 记录请求体的前100个字符用于调试
             if (requestBodyContent.length > 0) {
