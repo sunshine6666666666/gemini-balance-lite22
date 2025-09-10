@@ -434,7 +434,13 @@ async function handleCompletions(req, apiKeys, reqId) {
     }
 
     // 记录请求详情
-    logRequestDetails(reqId, req, model);
+    try {
+        console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录请求详情`);
+        logRequestDetails(reqId, req, model);
+        console.log(`[DEBUG] [ReqID:${reqId}] ✅ 请求详情记录完成`);
+    } catch (err) {
+        console.error(`[ERROR] [ReqID:${reqId}] ❌ 请求详情记录失败:`, err);
+    }
 
     // 步骤 3: 转换请求格式
     let body = await transformRequest(req);
@@ -534,8 +540,16 @@ async function handleCompletions(req, apiKeys, reqId) {
   logRequest(reqId, 'POST', '/v1/chat/completions', model, apiKeys[0], response.status, totalDuration);
 
   // 记录响应内容详情
-  if (response.ok && body && typeof body === 'object') {
-    logResponseContent(reqId, body, model, body.usage);
+  try {
+    console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录响应内容`);
+    if (response.ok && body && typeof body === 'object') {
+      logResponseContent(reqId, body, model, body.usage);
+      console.log(`[DEBUG] [ReqID:${reqId}] ✅ 响应内容记录完成`);
+    } else {
+      console.log(`[DEBUG] [ReqID:${reqId}] ⚠️ 响应内容记录跳过: ok=${response.ok}, body=${typeof body}`);
+    }
+  } catch (err) {
+    console.error(`[ERROR] [ReqID:${reqId}] ❌ 响应内容记录失败:`, err);
   }
 
   return new Response(body, fixCors(response));
