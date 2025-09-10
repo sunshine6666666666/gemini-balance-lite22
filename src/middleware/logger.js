@@ -33,11 +33,9 @@ function log(level, reqId, emoji, message, data = null) {
         logMessage += ` | ${JSON.stringify(data)}`;
     }
 
-    switch (level) {
-        case 'ERROR': console.error(logMessage); break;
-        case 'WARN': console.warn(logMessage); break;
-
-    }
+    // 在Vercel环境中，所有日志都使用console.log以确保显示
+    // 但保留级别标识以便区分
+    console.log(logMessage);
 }
 
 /**

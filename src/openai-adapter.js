@@ -84,6 +84,17 @@ export default {
                     requestBody = await requestClone.json();
                 } catch (e) {
                     logWarning(reqId, '请求体解析', '请求体JSON解析失败');
+                    logError(reqId, 'OpenAI请求处理', e);
+                    return new Response(JSON.stringify({
+                        error: {
+                            message: "Invalid JSON in request body",
+                            type: "invalid_request_error",
+                            code: "invalid_json"
+                        }
+                    }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
                 }
             }
 
@@ -371,21 +382,55 @@ async function handleCompletions(req, apiKeys, reqId) {
 
     // 处理模型名称
     let model = MODEL_CONFIG.DEFAULT_MODEL;
+    let modelProvided = false;
+
     switch (true) {
         case typeof req.model !== "string":
+            // 使用默认模型
             break;
         case req.model.startsWith("models/"):
             model = req.model.substring(7);
+            modelProvided = true;
             break;
         case req.model.startsWith("gemini-"):
         case req.model.startsWith("gemma-"):
         case req.model.startsWith("learnlm-"):
             model = req.model;
+            modelProvided = true;
             break;
         default:
             if (MODEL_CONFIG.MODEL_MAPPING[req.model]) {
                 model = MODEL_CONFIG.MODEL_MAPPING[req.model];
+                modelProvided = true;
+            } else if (req.model) {
+                // 无效的模型名
+                logError(reqId, '模型验证', new Error(`Invalid model: ${req.model}`));
+                return new Response(JSON.stringify({
+                    error: {
+                        message: `The model '${req.model}' does not exist`,
+                        type: "invalid_request_error",
+                        code: "model_not_found"
+                    }
+                }), {
+                    status: 400,
+                    headers: { 'Content-Type': 'application/json' }
+                });
             }
+    }
+
+    // 验证消息数组
+    if (!req.messages || !Array.isArray(req.messages) || req.messages.length === 0) {
+        logError(reqId, '消息验证', new Error('Empty or invalid messages array'));
+        return new Response(JSON.stringify({
+            error: {
+                message: "Messages array is required and cannot be empty",
+                type: "invalid_request_error",
+                code: "invalid_messages"
+            }
+        }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     // 步骤 3: 转换请求格式
