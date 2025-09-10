@@ -5,7 +5,6 @@
  * @适用场景: 所有需要通用工具函数的模块，避免重复实现
  */
 
-import { createLogPrefix, structuredLog } from '../middleware/logger.js';
 import { SECURITY_CONFIG, CONTENT_TYPES } from '../config/constants.js';
 
 /**
@@ -20,24 +19,13 @@ import { SECURITY_CONFIG, CONTENT_TYPES } from '../config/constants.js';
  *   4. 返回结果或默认值
  */
 export function safeJsonParse(jsonString, defaultValue = null) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'safeJsonParse');
-    
-    if (typeof jsonString !== 'string') {
-        structuredLog('warn', logPrefix, '步骤 1[WARN]', `输入不是字符串类型: ${typeof jsonString}`);
+    if (typeof jsonString !== 'string' || jsonString.trim() === '') {
         return defaultValue;
     }
-    
-    if (jsonString.trim() === '') {
-        structuredLog('warn', logPrefix, '步骤 1[WARN]', '输入为空字符串');
-        return defaultValue;
-    }
-    
+
     try {
-        const result = JSON.parse(jsonString);
-        structuredLog('info', logPrefix, '步骤 2[SUCCESS]', 'JSON解析成功');
-        return result;
+        return JSON.parse(jsonString);
     } catch (error) {
-        structuredLog('warn', logPrefix, '步骤 2[WARN]', `JSON解析失败: ${error.message}`);
         return defaultValue;
     }
 }
@@ -54,33 +42,25 @@ export function safeJsonParse(jsonString, defaultValue = null) {
  *   4. 处理循环引用
  */
 export function safeJsonStringify(obj, space = 0) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'safeJsonStringify');
-    
     if (obj === undefined) {
-        structuredLog('warn', logPrefix, '步骤 1[WARN]', '输入为undefined');
         return 'undefined';
     }
-    
+
     if (obj === null) {
         return 'null';
     }
-    
+
     try {
-        const result = JSON.stringify(obj, null, space);
-        structuredLog('info', logPrefix, '步骤 2[SUCCESS]', 'JSON序列化成功');
-        return result;
+        return JSON.stringify(obj, null, space);
     } catch (error) {
         if (error.message.includes('circular')) {
-            structuredLog('warn', logPrefix, '步骤 2[WARN]', '检测到循环引用，使用简化序列化');
-            return JSON.stringify(obj, (key, value) => {
+            return JSON.stringify(obj, (_, value) => {
                 if (typeof value === 'object' && value !== null) {
                     return '[Circular Reference]';
                 }
                 return value;
             }, space);
         }
-        
-        structuredLog('error', logPrefix, '步骤 2[ERROR]', `JSON序列化失败: ${error.message}`);
         return '[Serialization Error]';
     }
 }
@@ -96,20 +76,14 @@ export function safeJsonStringify(obj, space = 0) {
  *   4. 处理克隆失败的情况
  */
 export function deepClone(obj) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'deepClone');
-    
-    // 处理基本类型
     if (obj === null || typeof obj !== 'object') {
         return obj;
     }
-    
+
     try {
-        const cloned = JSON.parse(JSON.stringify(obj));
-        structuredLog('info', logPrefix, '步骤 1[SUCCESS]', '对象深度克隆成功');
-        return cloned;
+        return JSON.parse(JSON.stringify(obj));
     } catch (error) {
-        structuredLog('error', logPrefix, '步骤 1[ERROR]', `深度克隆失败: ${error.message}`);
-        return obj; // 返回原对象作为fallback
+        return obj;
     }
 }
 
@@ -192,26 +166,15 @@ export function formatDuration(milliseconds) {
  *   4. 返回验证结果
  */
 export function isValidUrl(url) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'isValidUrl');
-    
     if (typeof url !== 'string') {
-        structuredLog('warn', logPrefix, '步骤 1[WARN]', `输入不是字符串: ${typeof url}`);
         return false;
     }
-    
+
     try {
         const urlObj = new URL(url);
         const validProtocols = ['http:', 'https:'];
-        
-        if (!validProtocols.includes(urlObj.protocol)) {
-            structuredLog('warn', logPrefix, '步骤 2[WARN]', `无效的协议: ${urlObj.protocol}`);
-            return false;
-        }
-        
-        structuredLog('info', logPrefix, '步骤 2[SUCCESS]', 'URL格式验证通过');
-        return true;
+        return validProtocols.includes(urlObj.protocol);
     } catch (error) {
-        structuredLog('warn', logPrefix, '步骤 2[WARN]', `URL格式无效: ${error.message}`);
         return false;
     }
 }
@@ -227,25 +190,20 @@ export function isValidUrl(url) {
  *   4. 返回参数对象
  */
 export function parseQueryParams(url) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'parseQueryParams');
-    
     if (!isValidUrl(url)) {
-        structuredLog('warn', logPrefix, '步骤 1[WARN]', 'URL格式无效');
         return {};
     }
-    
+
     try {
         const urlObj = new URL(url);
         const params = {};
-        
+
         for (const [key, value] of urlObj.searchParams.entries()) {
             params[key] = value;
         }
-        
-        structuredLog('info', logPrefix, '步骤 2[SUCCESS]', `解析到${Object.keys(params).length}个查询参数`);
+
         return params;
     } catch (error) {
-        structuredLog('error', logPrefix, '步骤 2[ERROR]', `查询参数解析失败: ${error.message}`);
         return {};
     }
 }
@@ -303,24 +261,15 @@ export function delay(ms) {
  *   4. 达到最大次数后抛出错误
  */
 export async function retryWithDelay(fn, maxRetries = 3, delayMs = 1000) {
-    const logPrefix = createLogPrefix('index.js', '工具函数', 'retryWithDelay');
-    
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            structuredLog('info', logPrefix, `步骤 ${attempt}`, `尝试执行函数 (${attempt}/${maxRetries})`);
-            const result = await fn();
-            structuredLog('info', logPrefix, `步骤 ${attempt}[SUCCESS]`, '函数执行成功');
-            return result;
+            return await fn();
         } catch (error) {
-            structuredLog('warn', logPrefix, `步骤 ${attempt}[WARN]`, `执行失败: ${error.message}`);
-            
             if (attempt === maxRetries) {
-                structuredLog('error', logPrefix, `步骤 ${attempt}[ERROR]`, '达到最大重试次数，执行失败');
                 throw error;
             }
-            
+
             if (delayMs > 0) {
-                structuredLog('info', logPrefix, `步骤 ${attempt}.1`, `延迟${delayMs}ms后重试`);
                 await delay(delayMs);
             }
         }

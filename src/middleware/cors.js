@@ -6,7 +6,7 @@
  * @适用场景: 所有需要跨域支持的API端点，确保前端应用正常访问
  */
 
-import { createLogPrefix, structuredLog } from './logger.js';
+// CORS中间件不需要日志功能
 
 /**
  * @功能概述: 默认CORS配置，定义允许的来源、方法和头部
