@@ -13,7 +13,7 @@
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
 import { validateTrustedApiKey } from './core/security.js';
-import { logRequest, logRequestDetails, logResponseContent, logError, logWarning } from './middleware/logger.js';
+import { generateRequestId, logRequest, logRequestDetails, logResponseContent, logError, logWarning, logDebug } from './middleware/logger.js';
 import { GEMINI_API, MODEL_CONFIG, OPENAI_ENDPOINTS } from './config/index.js';
 import { safeJsonStringify } from './utils/index.js';
 
@@ -36,13 +36,17 @@ export default {
      *   5. 返回格式化的响应
      */
     async fetch(request) {
-        const reqId = Date.now().toString();
+        const reqId = generateRequestId();
         const startTime = Date.now();
 
+        logDebug(reqId, 'OpenAI适配器', `开始处理OpenAI格式请求: ${request.method} ${request.url}`);
+
         const url = new URL(request.url);
+        logDebug(reqId, 'OpenAI适配器', `解析URL路径: ${url.pathname}`);
 
         // 处理OPTIONS预检请求
         if (request.method === "OPTIONS") {
+            logDebug(reqId, 'OpenAI适配器', '处理OPTIONS预检请求');
             return handleOPTIONS();
         }
 
@@ -53,20 +57,30 @@ export default {
 
         try {
             // 提取API Key
+            logDebug(reqId, 'API Key提取', '开始从Authorization头提取API Key');
             const auth = request.headers.get("Authorization");
+            logDebug(reqId, 'API Key提取', `Authorization头: ${auth ? auth.substring(0, 20) + '...' : 'null'}`);
+
             let apiKey = auth?.split(" ")[1];
             let apiKeys = [];
 
             if (apiKey && apiKey.includes(',')) {
                 apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
+                logDebug(reqId, 'API Key提取', `提取到${apiKeys.length}个API Key（逗号分隔）`);
             } else if (apiKey) {
                 apiKeys = [apiKey];
+                logDebug(reqId, 'API Key提取', '提取到1个API Key');
+            } else {
+                logDebug(reqId, 'API Key提取', '未找到API Key');
             }
 
             // 验证API Key
             if (apiKeys.length === 0) {
+                logWarning(reqId, 'API Key验证', '缺少API Key');
                 throw new HttpError("Missing API Key", 401);
             }
+
+            logDebug(reqId, 'API Key验证', `API Key验证通过，共${apiKeys.length}个Key`);
 
             const assert = (success) => {
                 if (!success) {
@@ -75,13 +89,19 @@ export default {
             };
 
             const { pathname } = url;
+            logDebug(reqId, '路由解析', `请求路径: ${pathname}, 方法: ${request.method}`);
 
             // 解析请求体
             let requestBody = null;
             if (request.method === "POST") {
+                logDebug(reqId, '请求体解析', '开始解析POST请求体');
                 try {
                     const requestClone = request.clone();
                     requestBody = await requestClone.json();
+                    logDebug(reqId, '请求体解析', `请求体解析成功，模型: ${requestBody?.model || 'unknown'}`);
+                    if (requestBody?.messages) {
+                        logDebug(reqId, '请求体解析', `消息数量: ${requestBody.messages.length}`);
+                    }
                 } catch (e) {
                     logWarning(reqId, '请求体解析', '请求体JSON解析失败');
                     logError(reqId, 'OpenAI请求处理', e);
@@ -96,21 +116,27 @@ export default {
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
+            } else {
+                logDebug(reqId, '请求体解析', `${request.method}请求，无需解析请求体`);
             }
 
             // 路由到相应的处理函数
+            logDebug(reqId, '路由处理', '开始路由到相应的处理函数');
             switch (true) {
                 case pathname.endsWith(OPENAI_ENDPOINTS.CHAT_COMPLETIONS):
+                    logDebug(reqId, '路由处理', '路由到chat/completions处理器');
                     assert(request.method === "POST");
                     return handleCompletions(requestBody || await request.json(), apiKeys, reqId)
                         .catch(errHandler);
 
                 case pathname.endsWith(OPENAI_ENDPOINTS.EMBEDDINGS):
+                    logDebug(reqId, '路由处理', '路由到embeddings处理器');
                     assert(request.method === "POST");
                     return handleEmbeddings(requestBody || await request.json(), apiKeys.length > 0 ? apiKeys[0] : apiKey)
                         .catch(errHandler);
 
                 case pathname.endsWith(OPENAI_ENDPOINTS.MODELS):
+                    logDebug(reqId, '路由处理', '路由到models处理器');
                     assert(request.method === "GET");
                     return handleModels(apiKeys.length > 0 ? apiKeys[0] : apiKey)
                         .catch(errHandler);

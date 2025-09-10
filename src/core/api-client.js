@@ -23,56 +23,67 @@ import { maskApiKey } from './security.js';
  *   5. 处理响应或错误，自动切换到下一个Key
  * @throws {Error} 当所有API Key都尝试失败时抛出错误
  */
-export async function enhancedFetch(url, options, apiKeys, context = 'default') {
-    const reqId = Date.now().toString(); // 生成唯一请求ID
-    const logPrefix = `[文件：api-client.js][API客户端][enhancedFetch][ReqID:${reqId}] `;
-    
+export async function enhancedFetch(url, options, apiKeys, context = 'default', reqId = null) {
+    const requestId = reqId || Date.now().toString(); // 使用传入的请求ID或生成新的
+    const logPrefix = `[文件：api-client.js][API客户端][enhancedFetch][ReqID:${requestId}] `;
+
+    console.log(`${logPrefix}[步骤 1] 开始增强fetch请求`); // 记录开始
+    console.log(`${logPrefix}[步骤 1.1] 目标URL: ${url}`); // 记录目标URL
+    console.log(`${logPrefix}[步骤 1.2] 上下文: ${context}, API Key数量: ${apiKeys.length}`); // 记录上下文信息
+
     const maxRetries = apiKeys.length; // 每个Key给一次机会
     const timeout = 45000; // 45秒超时
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         const startTime = Date.now();
-        
+        console.log(`${logPrefix}[步骤 2] 开始第${attempt}/${maxRetries}次尝试`); // 记录尝试次数
+
         try {
-            // 步骤 1: 使用负载均衡算法选择API Key
+            // 步骤 2.1: 使用负载均衡算法选择API Key
             const selectedKey = selectApiKeyBalanced(apiKeys, context);
-            
-            // 步骤 2: 更新请求头中的API Key
+            console.log(`${logPrefix}[步骤 2.1] 选择API Key: ${maskApiKey(selectedKey)}`); // 记录选择的Key
+
+            // 步骤 2.2: 更新请求头中的API Key
             const headers = new Headers(options.headers);
             headers.set('x-goog-api-key', selectedKey);
-            
-            // 步骤 3: 创建超时控制器
+            console.log(`${logPrefix}[步骤 2.2] 更新请求头，设置API Key`); // 记录头部更新
+
+            // 步骤 2.3: 创建超时控制器
             const controller = new AbortController();
             const timeoutId = setTimeout(() => {
+                console.log(`${logPrefix}[步骤 2.3][TIMEOUT] 请求超时，中止请求`); // 记录超时
                 controller.abort();
-
             }, timeout);
-            
-            // 步骤 4: 发送请求
+            console.log(`${logPrefix}[步骤 2.3] 设置超时控制器: ${timeout}ms`); // 记录超时设置
+
+            // 步骤 2.4: 发送请求
+            console.log(`${logPrefix}[步骤 2.4] 发送HTTP请求`); // 记录请求发送
             const response = await fetch(url, {
                 ...options,
                 headers: headers,
                 signal: controller.signal
             });
-            
+
             clearTimeout(timeoutId);
             const duration = Date.now() - startTime;
-            
-            if (response.ok) {
+            console.log(`${logPrefix}[步骤 2.4] 收到响应: 状态=${response.status}, 耗时=${duration}ms`); // 记录响应接收
 
+            if (response.ok) {
+                console.log(`${logPrefix}[步骤 2.4][SUCCESS] 请求成功，返回响应`); // 记录成功
                 return response;
             } else {
-                console.log(`${logPrefix}[步骤 4][ERROR] 响应错误 - 状态: ${response.status}, Key: ${maskApiKey(selectedKey)}`); // 记录响应错误
-                
-                // 步骤 5: 尝试读取错误响应体
+                console.log(`${logPrefix}[步骤 2.4][ERROR] 响应错误 - 状态: ${response.status}, Key: ${maskApiKey(selectedKey)}`); // 记录响应错误
+
+                // 步骤 2.5: 尝试读取错误响应体
                 try {
                     const errorText = await response.text();
-                    console.log(`${logPrefix}[步骤 5] 错误响应体: ${errorText.substring(0, 200)}...`); // 记录错误响应（截断）
+                    console.log(`${logPrefix}[步骤 2.5] 错误响应体: ${errorText.substring(0, 200)}...`); // 记录错误响应（截断）
                 } catch (e) {
-
+                    console.log(`${logPrefix}[步骤 2.5][ERROR] 无法读取错误响应体: ${e.message}`); // 记录读取失败
                 }
-                
+
                 // 继续循环，不return
+                console.log(`${logPrefix}[步骤 2.6] 尝试下一个API Key`); // 记录继续尝试
             }
             
         } catch (error) {

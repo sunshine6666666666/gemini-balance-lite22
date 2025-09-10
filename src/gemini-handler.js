@@ -33,14 +33,20 @@ import { safeJsonParse, safeJsonStringify } from './utils/index.js';
  * @安全验证: API Key白名单验证和备用Key池管理
  */
 export async function handleRequest(request) {
-    const reqId = Date.now().toString();
+    const reqId = generateRequestId();
     const startTime = Date.now();
+
+    // 记录请求开始
+    logDebug(reqId, '请求处理', `开始处理请求: ${request.method} ${request.url}`);
 
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    logDebug(reqId, '请求解析', `路径: ${pathname}, 查询参数: ${url.search}`);
+
     // 处理首页访问
     if (pathname === '/' || pathname === '/index.html') {
+        logDebug(reqId, '路由处理', '处理首页访问请求');
         return new Response('Proxy is Running!  More Details: https://github.com/sunshine6666666666/gemini-balance-lite22', {
             status: 200,
             headers: { 'Content-Type': 'text/html' }
@@ -49,6 +55,7 @@ export async function handleRequest(request) {
 
     // 处理API Key验证请求
     if (pathname === '/verify' && request.method === 'POST') {
+        logDebug(reqId, '路由处理', '处理API Key验证请求');
         return handleVerification(request);
     }
 
@@ -57,8 +64,11 @@ export async function handleRequest(request) {
     const isOpenAIRequest = openaiEndpoints.some(endpoint => pathname.endsWith(endpoint));
 
     if (isOpenAIRequest) {
+        logDebug(reqId, '路由处理', `检测到OpenAI格式请求，路由到OpenAI适配器: ${pathname}`);
         return openai.fetch(request);
     }
+
+    logDebug(reqId, '路由处理', `处理Gemini原生API请求: ${pathname}`);
 
     // 构建Gemini API目标URL
     const targetUrl = `${GEMINI_API.BASE_URL}${pathname}${url.search}`;
@@ -69,17 +79,21 @@ export async function handleRequest(request) {
         let apiKeys = [];
 
         // 从请求头中提取API Keys
+        logDebug(reqId, 'API Key提取', '开始从请求头提取API Keys');
         for (const [key, value] of request.headers.entries()) {
             if (key.trim().toLowerCase() === 'x-goog-api-key') {
                 apiKeys = value.split(',').map(k => k.trim()).filter(k => k);
+                logDebug(reqId, 'API Key提取', `从x-goog-api-key头提取到${apiKeys.length}个API Key`);
             } else if (key.trim().toLowerCase() === 'authorization') {
                 const bearerMatch = value.match(/^Bearer\s+(.+)$/i);
                 if (bearerMatch && apiKeys.length === 0) {
                     const bearerToken = bearerMatch[1];
                     if (bearerToken.includes(',')) {
                         apiKeys = bearerToken.split(',').map(k => k.trim()).filter(k => k);
+                        logDebug(reqId, 'API Key提取', `从Authorization头提取到${apiKeys.length}个API Key（逗号分隔）`);
                     } else {
                         apiKeys = [bearerToken];
+                        logDebug(reqId, 'API Key提取', '从Authorization头提取到1个API Key');
                     }
                 }
             } else if (key.trim().toLowerCase() === 'content-type') {
@@ -88,12 +102,14 @@ export async function handleRequest(request) {
         }
 
         // 智能API Key管理
+        logDebug(reqId, 'API Key管理', `当前API Key数量: ${apiKeys.length}`);
         if (apiKeys.length <= 1) {
             const inputApiKey = apiKeys[0];
+            logDebug(reqId, 'API Key管理', `单Key模式，开始白名单验证: ${inputApiKey ? inputApiKey.substring(0, 8) + '...' : 'null'}`);
 
             // 白名单验证
             if (!validateTrustedApiKey(inputApiKey)) {
-                logWarning(reqId, 'API Key验证', 'API Key未通过白名单验证');
+                logWarning(reqId, 'API Key验证', `API Key未通过白名单验证: ${inputApiKey ? inputApiKey.substring(0, 8) + '...' : 'null'}`);
                 return new Response(
                     safeJsonStringify({
                         error: 'Unauthorized',
@@ -107,12 +123,18 @@ export async function handleRequest(request) {
                 );
             }
 
+            logDebug(reqId, 'API Key验证', '白名单验证通过，检查备用Key池');
             // 获取备用Key池
             const backupKeys = process.env.BACKUP_API_KEYS;
             if (backupKeys) {
                 const backupKeyArray = backupKeys.split(',').map(k => k.trim()).filter(k => k);
                 apiKeys = backupKeyArray;
+                logDebug(reqId, 'API Key管理', `使用备用Key池，共${backupKeyArray.length}个Key`);
+            } else {
+                logDebug(reqId, 'API Key管理', '未配置备用Key池，使用原始Key');
             }
+        } else {
+            logDebug(reqId, 'API Key管理', '多Key模式，跳过白名单验证');
         }
 
         // 验证API Key可用性
@@ -121,11 +143,25 @@ export async function handleRequest(request) {
             throw new Error('未找到API Key');
         }
 
+        logDebug(reqId, 'API Key验证', `最终API Key数量: ${apiKeys.length}，准备发送请求`);
+
         // 处理请求体内容
         let requestBodyContent = null;
         if (request.body) {
             requestBodyContent = await request.text();
+            logDebug(reqId, '请求体处理', `请求体长度: ${requestBodyContent.length} 字符`);
+            // 记录请求体的前100个字符用于调试
+            if (requestBodyContent.length > 0) {
+                const preview = requestBodyContent.length > 100 ?
+                    requestBodyContent.substring(0, 100) + '...' : requestBodyContent;
+                logDebug(reqId, '请求体内容', `请求体预览: ${preview}`);
+            }
+        } else {
+            logDebug(reqId, '请求体处理', '无请求体内容');
         }
+
+        logDebug(reqId, '请求发送', `目标URL: ${targetUrl}`);
+        logDebug(reqId, '请求发送', `请求方法: ${request.method}`);
 
         // 使用增强的fetch函数发送请求
         const response = await enhancedFetch(targetUrl, {
@@ -135,11 +171,13 @@ export async function handleRequest(request) {
         }, apiKeys, 'gemini', reqId);
 
         const duration = Date.now() - startTime;
+        logDebug(reqId, '请求完成', `请求耗时: ${duration}ms，响应状态: ${response.status}`);
 
         // 记录请求摘要
         logRequest(reqId, request.method, pathname, 'gemini-native', apiKeys[0], response.status, duration);
 
         // 处理响应头
+        logDebug(reqId, '响应处理', '开始处理响应头');
         const responseHeaders = new Headers(response.headers);
         responseHeaders.delete('transfer-encoding');
         responseHeaders.delete('connection');
@@ -149,6 +187,9 @@ export async function handleRequest(request) {
         responseHeaders.set('X-Processed-By', 'Enhanced-Gemini-Proxy');
         responseHeaders.set('X-Request-ID', reqId);
 
+        logDebug(reqId, '响应处理', `响应头处理完成，Content-Type: ${responseHeaders.get('content-type')}`);
+        logDebug(reqId, '响应完成', `最终响应状态: ${response.status}, 总耗时: ${duration}ms`);
+
         // 返回最终响应
         return new Response(response.body, {
             status: response.status,
@@ -156,7 +197,10 @@ export async function handleRequest(request) {
         });
 
     } catch (error) {
+        const errorDuration = Date.now() - startTime;
         logError(reqId, 'Gemini请求处理', error);
+        logDebug(reqId, '错误处理', `错误类型: ${error.name}, 错误信息: ${error.message}`);
+        logDebug(reqId, '错误处理', `错误发生时间: ${errorDuration}ms`);
 
         // 返回结构化错误响应
         const errorResponse = {
@@ -164,9 +208,12 @@ export async function handleRequest(request) {
                 message: error.message,
                 type: error.name || 'RequestError',
                 timestamp: new Date().toISOString(),
-                request_id: reqId
+                request_id: reqId,
+                duration: errorDuration
             }
         };
+
+        logDebug(reqId, '错误响应', `返回错误响应: ${error.name === 'AbortError' ? 408 : 500}`);
 
         return new Response(safeJsonStringify(errorResponse, 2), {
             status: error.name === 'AbortError' ? 408 : 500,

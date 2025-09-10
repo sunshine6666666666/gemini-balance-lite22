@@ -21,27 +21,34 @@
  * @算法原理: 将时间分割成固定窗口，在每个窗口内使用确定性轮询分配
  */
 export function selectApiKeyBalanced(apiKeys, context = 'default') {
-    const reqId = Date.now().toString(); // 生成请求ID用于日志追踪
-    const logPrefix = `[文件：load-balancer.js][负载均衡器][selectApiKeyBalanced][ReqID:${reqId}] `;
-    
+    // 不在这里生成新的请求ID，避免日志混乱
+    const logPrefix = `[文件：load-balancer.js][负载均衡器][selectApiKeyBalanced] `;
+
     // 步骤 1: 验证输入参数
     if (!apiKeys || apiKeys.length === 0) {
         console.log(`${logPrefix}[步骤 1][ERROR] API Key数组为空`); // 记录参数错误
         throw new Error('API Key数组不能为空');
     }
-    
+
+    console.log(`${logPrefix}[步骤 1] 开始负载均衡选择，API Key数量: ${apiKeys.length}, 上下文: ${context}`); // 记录开始
+
     // 步骤 2: 获取当前时间和计算时间窗口
     const now = Date.now();
     const windowSize = 10000; // 10秒时间窗口
     const windowStart = Math.floor(now / windowSize) * windowSize;
     const offsetInWindow = now - windowStart;
-    
+
+    console.log(`${logPrefix}[步骤 2] 时间窗口计算 - 当前时间: ${now}, 窗口起始: ${windowStart}, 窗口内偏移: ${offsetInWindow}ms`); // 记录时间窗口
+
     // 步骤 3: 在时间窗口内进行轮询分配
     // 将窗口时间平均分配给每个API Key
     const slotSize = windowSize / apiKeys.length;
     const index = Math.floor(offsetInWindow / slotSize) % apiKeys.length;
-    
+
     const selectedKey = apiKeys[index];
+    const maskedKey = selectedKey ? `${selectedKey.substring(0, 6)}...${selectedKey.slice(-4)}` : 'null';
+
+    console.log(`${logPrefix}[步骤 3] 负载均衡结果 - 选择索引: ${index}/${apiKeys.length-1}, 时间片大小: ${slotSize}ms, 选中Key: ${maskedKey}`); // 记录选择结果
 
     return selectedKey;
 }

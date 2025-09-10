@@ -13,10 +13,19 @@ const LOG_LEVELS = {
 };
 
 // 当前日志级别（可通过环境变量控制）
-const CURRENT_LEVEL = LOG_LEVELS[process.env.LOG_LEVEL || 'INFO'];
+// 在Preview环境默认启用DEBUG级别，Production环境使用INFO级别
+const getDefaultLogLevel = () => {
+    // 检查是否为Vercel Preview环境
+    if (process.env.VERCEL_ENV === 'preview' || process.env.NODE_ENV === 'development') {
+        return 'DEBUG';
+    }
+    return 'INFO';
+};
+
+const CURRENT_LEVEL = LOG_LEVELS[process.env.LOG_LEVEL || getDefaultLogLevel()];
 
 /**
- * @功能概述: 核心日志函数，统一格式和过滤
+ * @功能概述: 核心日志函数，统一格式和过滤，针对Vercel Edge Runtime优化
  * @param {string} level - 日志级别
  * @param {string} reqId - 请求ID
  * @param {string} emoji - 表情符号
@@ -30,12 +39,30 @@ function log(level, reqId, emoji, message, data = null) {
     let logMessage = `${prefix} ${message}`;
 
     if (data) {
-        logMessage += ` | ${JSON.stringify(data)}`;
+        // 确保数据序列化不会失败
+        try {
+            const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
+            logMessage += ` | ${dataStr}`;
+        } catch (e) {
+            logMessage += ` | [数据序列化失败]`;
+        }
     }
 
-    // 在Vercel环境中，所有日志都使用console.log以确保显示
-    // 但保留级别标识以便区分
-    console.log(logMessage);
+    // 根据日志级别使用不同的console方法，确保在Edge Runtime中正确显示
+    switch (level) {
+        case 'ERROR':
+            console.error(logMessage);
+            break;
+        case 'WARN':
+            console.warn(logMessage);
+            break;
+        case 'DEBUG':
+            // 在Edge Runtime中，console.debug可能被过滤，使用console.log
+            console.log(`[DEBUG] ${logMessage.substring(7)}`); // 移除重复的[DEBUG]前缀
+            break;
+        default:
+            console.log(logMessage);
+    }
 }
 
 /**
