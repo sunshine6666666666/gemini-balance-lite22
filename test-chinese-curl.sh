@@ -4,7 +4,7 @@
 
 echo "🌍 开始中文UTF-8编码测试"
 
-URL="https://gemini-balance-lite22-f9xcnk27r-showlin666s-projects.vercel.app/v1/chat/completions"
+URL="https://gemini-balance-lite22-i2lyyd8m0-showlin666s-projects.vercel.app/v1/chat/completions"
 API_KEY="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c"
 BYPASS_TOKEN="84kM0tfej2VEXdyQdZs6cLhCmmaePkg1"
 

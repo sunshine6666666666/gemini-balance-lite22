@@ -492,7 +492,11 @@ async function handleCompletions(req, apiKeys, reqId) {
     const extra = req.extra_body?.google;
 
     // 记录请求体详情
-    const targetUrl = `${GEMINI_API.BASE_URL}/${GEMINI_API.API_VERSION}/models/${model}:${req.stream ? "streamGenerateContent" : "generateContent"}`;
+    const TASK = req.stream ? "streamGenerateContent" : "generateContent";
+    let targetUrl = `${GEMINI_API.BASE_URL}/${GEMINI_API.API_VERSION}/models/${model}:${TASK}`;
+    if (req.stream) {
+        targetUrl += "?alt=sse";
+    }
     console.log(`🎯 目标URL: ${targetUrl}`);
     if (apiKeys.length > 1) {
         console.log(`✅ 使用传入的多个API Key (${apiKeys.length}个)`);
@@ -526,12 +530,8 @@ async function handleCompletions(req, apiKeys, reqId) {
 
     }
 
-    // 步骤 5: 构建请求URL
-    const TASK = req.stream ? "streamGenerateContent" : "generateContent";
-    let url = `${GEMINI_API.BASE_URL}/${GEMINI_API.API_VERSION}/models/${model}:${TASK}`;
-    if (req.stream) {
-        url += "?alt=sse";
-    }
+    // 步骤 5: 构建请求URL（使用之前定义的TASK和targetUrl）
+    let url = targetUrl;
 
     // 发送Gemini API请求
     const apiStartTime = Date.now();
