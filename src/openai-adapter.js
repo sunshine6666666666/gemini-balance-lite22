@@ -14,7 +14,7 @@
 import { enhancedFetch } from './core/api-client.js';
 import { selectApiKeyBalanced } from './core/load-balancer.js';
 import { validateTrustedApiKey, getEffectiveApiKeys, maskApiKey } from './core/security.js';
-import { createLogPrefix, structuredLog, logRequestInfo, logResponseInfo, logError } from './middleware/logger.js';
+import { generateRequestId, logRequest, logLoadBalance, logFormatConversion, logPerformance, logError, logWarning, logDebug } from './middleware/logger.js';
 import { addCorsHeaders } from './middleware/cors.js';
 import { config, GEMINI_API, MODEL_CONFIG, OPENAI_ENDPOINTS } from './config/index.js';
 import { safeJsonParse, safeJsonStringify } from './utils/index.js';
@@ -38,16 +38,13 @@ export default {
      *   5. 返回格式化的响应
      */
     async fetch(request) {
-        const reqId = Date.now().toString(); // 生成唯一请求ID
-        const logPrefix = createLogPrefix('openai.mjs', 'OpenAI兼容器', 'fetch', reqId);
+        const reqId = Date.now().toString();
+        const startTime = Date.now();
 
         const url = new URL(request.url);
-        structuredLog('info', logPrefix, '步骤 1', `OpenAI模式请求: ${request.method} ${url.pathname}`);
-        logRequestInfo(request, reqId, 'OpenAI兼容API');
 
-        // 步骤 1: 处理OPTIONS预检请求
+        // 处理OPTIONS预检请求
         if (request.method === "OPTIONS") {
-            structuredLog('info', logPrefix, '步骤 1.1', 'OPTIONS预检请求');
             return handleOPTIONS();
         }
 
@@ -213,26 +210,20 @@ const makeHeaders = (apiKey, more) => ({
  * @returns {Promise<Response>} 包含模型列表的响应，OpenAI格式
  */
 async function handleModels (apiKey) {
-  console.log(`\n🔄 ===== 发送Gemini API请求 =====`);
+
   const requestUrl = `${BASE_URL}/${API_VERSION}/models`;
-  console.log(`🎯 请求URL: ${requestUrl}`);
-  console.log(`🔑 使用API Key: ${apiKey?.substring(0, 8)}...${apiKey?.substring(apiKey.length - 8)}`);
 
   const response = await fetch(requestUrl, {
     headers: makeHeaders(apiKey),
   });
 
-  console.log(`📊 Gemini响应状态: ${response.status} ${response.statusText}`);
-  console.log(`📋 Gemini响应头:`);
   for (const [key, value] of response.headers.entries()) {
-    console.log(`  ${key}: ${value}`);
+
   }
 
   let { body } = response;
   if (response.ok) {
     const responseText = await response.text();
-    console.log(`📦 Gemini原始响应:`);
-    console.log(responseText);
 
     const { models } = JSON.parse(responseText);
     const transformedBody = {
@@ -246,12 +237,9 @@ async function handleModels (apiKey) {
     };
     body = JSON.stringify(transformedBody, null, "  ");
 
-    console.log(`📦 转换后的OpenAI格式响应:`);
-    console.log(body);
   } else {
-    console.log(`❌ Gemini API请求失败`);
+
   }
-  console.log(`🔄 ===== Gemini API请求结束 =====\n`);
 
   return new Response(body, fixCors(response));
 }
@@ -267,9 +255,6 @@ const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
  * @throws {HttpError} 当模型未指定或请求格式错误时抛出
  */
 async function handleEmbeddings (req, apiKey) {
-  console.log(`\n🔤 ===== 处理文本嵌入请求 =====`);
-  console.log(`📋 原始请求参数:`);
-  console.log(JSON.stringify(req, null, 2));
 
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
@@ -283,12 +268,10 @@ async function handleEmbeddings (req, apiKey) {
     }
     model = "models/" + req.model;
   }
-  console.log(`🤖 使用模型: ${model}`);
 
   if (!Array.isArray(req.input)) {
     req.input = [ req.input ];
   }
-  console.log(`📝 输入文本数量: ${req.input.length}`);
 
   const requestBody = {
     "requests": req.input.map(text => ({
@@ -298,12 +281,7 @@ async function handleEmbeddings (req, apiKey) {
     }))
   };
 
-  console.log(`\n🔄 ===== 发送Gemini嵌入API请求 =====`);
   const requestUrl = `${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`;
-  console.log(`🎯 请求URL: ${requestUrl}`);
-  console.log(`🔑 使用API Key: ${apiKey?.substring(0, 8)}...${apiKey?.substring(apiKey.length - 8)}`);
-  console.log(`📦 请求体:`);
-  console.log(JSON.stringify(requestBody, null, 2));
 
   const response = await fetch(requestUrl, {
     method: "POST",
@@ -311,13 +289,9 @@ async function handleEmbeddings (req, apiKey) {
     body: JSON.stringify(requestBody)
   });
 
-  console.log(`📊 Gemini响应状态: ${response.status} ${response.statusText}`);
-
   let { body } = response;
   if (response.ok) {
     const responseText = await response.text();
-    console.log(`📦 Gemini原始响应:`);
-    console.log(responseText);
 
     const { embeddings } = JSON.parse(responseText);
     const transformedBody = {
@@ -331,12 +305,9 @@ async function handleEmbeddings (req, apiKey) {
     };
     body = JSON.stringify(transformedBody, null, "  ");
 
-    console.log(`📦 转换后的OpenAI格式响应:`);
-    console.log(body);
   } else {
-    console.log(`❌ Gemini嵌入API请求失败`);
+
   }
-  console.log(`🔄 ===== Gemini嵌入API请求结束 =====\n`);
 
   return new Response(body, fixCors(response));
 }
@@ -350,12 +321,6 @@ async function handleEmbeddings (req, apiKey) {
  * @returns {Promise<Response>} 错误响应，说明不支持语音合成
  */
 async function handleAudioSpeech(req, apiKeys) {
-  console.log(`\n🔊 ===== 处理语音合成请求 =====`);
-  console.log(`📋 原始请求参数:`);
-  console.log(JSON.stringify(req, null, 2));
-
-  console.log(`❌ Gemini API目前不支持语音合成功能`);
-  console.log(`🔊 ===== 语音合成请求处理结束 =====\n`);
 
   // 返回标准的OpenAI错误格式
   const errorResponse = {
@@ -374,8 +339,6 @@ async function handleAudioSpeech(req, apiKeys) {
     }
   });
 }
-
-
 
 /**
  * @功能概述: 处理聊天完成请求，OpenAI格式转Gemini格式
@@ -505,9 +468,9 @@ async function handleCompletions(req, apiKeys) {
     const duration = Date.now() - startTime;
     structuredLog('info', logPrefix, '步骤 6[SUCCESS]', `Gemini API响应: ${response.status}, 耗时: ${duration}ms`);
   // 注释：详细Gemini响应头信息（调试时可启用）
-  // console.log(`📋 Gemini响应头:`);
+
   // for (const [key, value] of response.headers.entries()) {
-  //   console.log(`  ${key}: ${value}`);
+
   // }
 
   body = response.body;
@@ -515,7 +478,7 @@ async function handleCompletions(req, apiKeys) {
     let id = "chatcmpl-" + generateId(); //"chatcmpl-8pMMaqXMK68B3nyDBrapTDrhkHBQK";
     const shared = {};
     if (req.stream) {
-      console.log(`🌊 处理流式响应`);
+
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
@@ -533,10 +496,8 @@ async function handleCompletions(req, apiKeys) {
         }))
         .pipeThrough(new TextEncoderStream());
     } else {
-      console.log(`📄 处理非流式响应`);
+
       body = await response.text();
-      console.log(`📦 Gemini原始响应:`);
-      console.log(body);
 
       try {
         const parsedBody = JSON.parse(body);
@@ -544,16 +505,15 @@ async function handleCompletions(req, apiKeys) {
           throw new Error("Invalid completion object");
         }
         const transformedResponse = processCompletionsResponse(parsedBody, model, id);
-        console.log(`📦 转换后的OpenAI格式响应:`);
-        console.log(transformedResponse);
+
         body = transformedResponse;
       } catch (err) {
         console.error("Error parsing response:", err);
-        console.log(`❌ 响应解析失败，返回原始响应`);
+
         return new Response(body, fixCors(response)); // output as is
       }
     }
-    console.log(`🔄 ===== Gemini聊天API请求结束 =====\n`);
+
   }
   return new Response(body, fixCors(response));
 }
@@ -939,11 +899,11 @@ const transformUsage = (data) => ({
 const checkPromptBlock = (choices, promptFeedback, key) => {
   if (choices.length) { return; }
   if (promptFeedback?.blockReason) {
-    console.log("Prompt block reason:", promptFeedback.blockReason);
+
     if (promptFeedback.blockReason === "SAFETY") {
       promptFeedback.safetyRatings
         .filter(r => r.blocked)
-        .forEach(r => console.log(r));
+
     }
     choices.push({
       index: 0,

@@ -30,8 +30,6 @@ export async function enhancedFetch(url, options, apiKeys, context = 'default') 
     const maxRetries = apiKeys.length; // 每个Key给一次机会
     const timeout = 45000; // 45秒超时
     
-    console.log(`${logPrefix}[步骤 1] 开始API请求 - URL: ${url}, 可用Keys: ${apiKeys.length}, 上下文: ${context}`); // 记录请求开始
-
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         const startTime = Date.now();
         
@@ -43,13 +41,11 @@ export async function enhancedFetch(url, options, apiKeys, context = 'default') 
             const headers = new Headers(options.headers);
             headers.set('x-goog-api-key', selectedKey);
             
-            console.log(`${logPrefix}[步骤 2] 尝试 ${attempt}/${maxRetries} - 使用Key: ${maskApiKey(selectedKey)}`); // 记录当前尝试
-            
             // 步骤 3: 创建超时控制器
             const controller = new AbortController();
             const timeoutId = setTimeout(() => {
                 controller.abort();
-                console.log(`${logPrefix}[步骤 3][TIMEOUT] 请求超时 (${timeout}ms) - Key: ${maskApiKey(selectedKey)}`); // 记录超时
+
             }, timeout);
             
             // 步骤 4: 发送请求
@@ -62,10 +58,8 @@ export async function enhancedFetch(url, options, apiKeys, context = 'default') 
             clearTimeout(timeoutId);
             const duration = Date.now() - startTime;
             
-            console.log(`${logPrefix}[步骤 4] 响应: ${response.status} ${response.statusText}, 耗时: ${duration}ms`); // 记录响应状态
-            
             if (response.ok) {
-                console.log(`${logPrefix}[步骤 4][SUCCESS] 请求成功 - 状态: ${response.status}, Key: ${maskApiKey(selectedKey)}`); // 记录成功
+
                 return response;
             } else {
                 console.log(`${logPrefix}[步骤 4][ERROR] 响应错误 - 状态: ${response.status}, Key: ${maskApiKey(selectedKey)}`); // 记录响应错误
@@ -75,10 +69,9 @@ export async function enhancedFetch(url, options, apiKeys, context = 'default') 
                     const errorText = await response.text();
                     console.log(`${logPrefix}[步骤 5] 错误响应体: ${errorText.substring(0, 200)}...`); // 记录错误响应（截断）
                 } catch (e) {
-                    console.log(`${logPrefix}[步骤 5] 无法读取错误响应体`); // 记录读取失败
+
                 }
                 
-                console.log(`${logPrefix}[步骤 6] 遇到错误，立即轮询到下一个Key`); // 记录切换Key
                 // 继续循环，不return
             }
             
@@ -92,7 +85,6 @@ export async function enhancedFetch(url, options, apiKeys, context = 'default') 
                 throw error;
             }
             
-            console.log(`${logPrefix}[步骤 6] 网络异常，立即轮询到下一个Key`); // 记录异常切换
         }
         
         // 移除延迟，立即切换到下一个Key
@@ -120,8 +112,6 @@ export function createApiClient(config = {}) {
         timeout = 45000,
         context = 'default'
     } = config;
-    
-    console.log(`${logPrefix}[步骤 1] 创建API客户端 - 超时: ${timeout}ms, 上下文: ${context}`); // 记录客户端创建
     
     return {
         /**

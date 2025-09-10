@@ -36,18 +36,13 @@ export function selectApiKeyBalanced(apiKeys, context = 'default') {
     const windowStart = Math.floor(now / windowSize) * windowSize;
     const offsetInWindow = now - windowStart;
     
-    console.log(`${logPrefix}[步骤 2] 时间窗口计算 - 当前时间: ${now}, 窗口起始: ${windowStart}, 窗口偏移: ${offsetInWindow}ms`); // 记录时间窗口信息
-    
     // 步骤 3: 在时间窗口内进行轮询分配
     // 将窗口时间平均分配给每个API Key
     const slotSize = windowSize / apiKeys.length;
     const index = Math.floor(offsetInWindow / slotSize) % apiKeys.length;
     
-    console.log(`${logPrefix}[步骤 3] 负载均衡选择 - 上下文: ${context}, 选中索引: ${index}/${apiKeys.length-1}, 时间片大小: ${slotSize}ms`); // 记录选择结果
-    
     const selectedKey = apiKeys[index];
-    console.log(`${logPrefix}[步骤 4][SUCCESS] 选中API Key: ${selectedKey.substring(0, 8)}...${selectedKey.substring(selectedKey.length - 8)}`); // 记录选中的Key（脱敏）
-    
+
     return selectedKey;
 }
 
@@ -76,9 +71,6 @@ export function getLoadBalancerStats() {
         windowProgress: Math.round(windowProgress * 100) / 100, // 保留2位小数
         algorithm: 'time-window-polling'
     };
-    
-    console.log(`${logPrefix}[步骤 1] 生成负载均衡统计信息`); // 记录统计信息生成
-    console.log(`${logPrefix}[步骤 1.1] 当前窗口进度: ${stats.windowProgress}%`); // 记录窗口进度
     
     return stats;
 }
@@ -122,8 +114,6 @@ export function predictNextSelection(apiKeys, context = 'default') {
         context: context
     };
     
-    console.log(`${logPrefix}[步骤 1] 预测下一个选择 - 当前索引: ${currentIndex}, 下一个索引: ${nextIndex}, 切换时间: ${prediction.timeToNext}ms`); // 记录预测结果
-    
     return prediction;
 }
 
@@ -139,8 +129,6 @@ export function predictNextSelection(apiKeys, context = 'default') {
  */
 export async function validateLoadBalancing(apiKeys, testDuration = 30000) {
     const logPrefix = `[文件：load-balancer.js][负载均衡器][validateLoadBalancing] `;
-    
-    console.log(`${logPrefix}[步骤 1] 开始负载均衡验证 - 测试时长: ${testDuration}ms, API Key数量: ${apiKeys.length}`); // 记录验证开始
     
     const startTime = Date.now();
     const selections = {};
@@ -178,8 +166,6 @@ export async function validateLoadBalancing(apiKeys, testDuration = 30000) {
         avgDeviation: Math.round(avgDeviation * 10000) / 100,
         isBalanced: maxDeviation < 0.2 // 偏差小于20%认为是均衡的
     };
-    
-    console.log(`${logPrefix}[步骤 2][SUCCESS] 验证完成 - 总选择: ${totalSelections}, 最大偏差: ${result.maxDeviation}%, 平均偏差: ${result.avgDeviation}%`); // 记录验证结果
     
     return result;
 }

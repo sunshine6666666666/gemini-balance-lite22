@@ -36,12 +36,10 @@ export function validateTrustedApiKey(apiKey) {
     
     // 步骤 3: 解析可信Key列表
     const trustedKeyList = trustedKeys.split(',').map(key => key.trim()).filter(key => key);
-    console.log(`${logPrefix}[步骤 3] 可信Key列表包含${trustedKeyList.length}个Key`); // 记录Key数量
-    
+
     // 步骤 4: 检查API Key是否在白名单中
     const isValid = trustedKeyList.includes(apiKey);
-    console.log(`${logPrefix}[步骤 4] 白名单验证结果: ${isValid ? '通过' : '失败'} - Key: ${maskApiKey(apiKey)}`); // 记录验证结果
-    
+
     return isValid;
 }
 
@@ -60,11 +58,9 @@ export function getBackupApiKeys(inputApiKey) {
     const reqId = Date.now().toString(); // 生成请求ID用于日志追踪
     const logPrefix = `[文件：security.js][安全验证器][getBackupApiKeys][ReqID:${reqId}] `;
     
-    console.log(`${logPrefix}[步骤 1] 开始获取备用Key池 - 输入Key: ${maskApiKey(inputApiKey)}`); // 记录开始获取
-    
     // 步骤 1: 验证输入Key是否在白名单中
     if (!validateTrustedApiKey(inputApiKey)) {
-        console.log(`${logPrefix}[步骤 1][SECURITY] 输入Key未通过白名单验证，拒绝访问备用Key池`); // 记录安全拒绝
+
         return [];
     }
     
@@ -77,8 +73,7 @@ export function getBackupApiKeys(inputApiKey) {
     
     // 步骤 3: 解析备用Key列表
     const backupKeyList = backupKeys.split(',').map(key => key.trim()).filter(key => key);
-    console.log(`${logPrefix}[步骤 3][SUCCESS] 获取到${backupKeyList.length}个备用Key`); // 记录获取成功
-    
+
     return backupKeyList;
 }
 
@@ -128,8 +123,6 @@ export function getEffectiveApiKeys(inputApiKeys) {
     const reqId = Date.now().toString(); // 生成请求ID用于日志追踪
     const logPrefix = `[文件：security.js][安全验证器][getEffectiveApiKeys][ReqID:${reqId}] `;
     
-    console.log(`${logPrefix}[步骤 1] 智能Key管理 - 输入Key数量: ${inputApiKeys.length}`); // 记录输入Key数量
-    
     // 步骤 1: 验证输入参数
     if (!inputApiKeys || inputApiKeys.length === 0) {
         console.log(`${logPrefix}[步骤 1][ERROR] 输入Key数组为空`); // 记录参数错误
@@ -139,21 +132,20 @@ export function getEffectiveApiKeys(inputApiKeys) {
     // 步骤 2: 单Key时启用备用Key池（需要白名单验证）
     if (inputApiKeys.length <= 1) {
         const inputApiKey = inputApiKeys[0];
-        console.log(`${logPrefix}[步骤 2] 单Key模式，尝试启用备用Key池 - Key: ${maskApiKey(inputApiKey)}`); // 记录单Key模式
-        
+
         // 获取备用Key池
         const backupKeys = getBackupApiKeys(inputApiKey);
         if (backupKeys.length > 0) {
-            console.log(`${logPrefix}[步骤 2.1][SUCCESS] 启用备用Key池，总Key数: ${backupKeys.length}`); // 记录备用池启用
+
             return backupKeys;
         } else {
-            console.log(`${logPrefix}[步骤 2.2][FALLBACK] 备用Key池不可用，使用原始Key`); // 记录回退到原始Key
+
             return inputApiKeys;
         }
     }
     
     // 步骤 3: 多Key时直接使用输入Key
-    console.log(`${logPrefix}[步骤 3] 多Key模式，直接使用输入Key - 数量: ${inputApiKeys.length}`); // 记录多Key模式
+
     return inputApiKeys;
 }
 
@@ -189,6 +181,5 @@ export function validateApiKeyFormat(apiKey) {
         // 不返回false，因为可能有其他格式的有效Key
     }
     
-    console.log(`${logPrefix}[步骤 4][SUCCESS] API Key格式验证通过 - Key: ${maskApiKey(apiKey)}`); // 记录验证通过
     return true;
 }
