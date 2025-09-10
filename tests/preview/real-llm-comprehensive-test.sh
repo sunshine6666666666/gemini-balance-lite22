@@ -4,7 +4,7 @@
 # 目标：测试各种真实的LLM使用场景，观察详细的Console.log
 
 # 配置
-PREVIEW_URL="https://gemini-balance-lite22-iltltmi7j-showlin666s-projects.vercel.app"
+PREVIEW_URL="https://gemini-balance-lite22-4nrwbt40c-showlin666s-projects.vercel.app"
 BYPASS_SECRET="84kM0tfej2VEXdyQdZs6cLhCmmaePkg1"
 TRUSTED_KEYS="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c,AIzaSyAim8GjbyZmjKHdRE7rMNG8KO33DQ--Udk"
 FIRST_KEY="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c"

@@ -563,9 +563,25 @@ async function handleCompletions(req, apiKeys, reqId) {
 
       try {
         const parsedBody = JSON.parse(body);
+
+        // 添加详细的Gemini响应调试日志
+        console.log(`🔍 Gemini原始响应:`, JSON.stringify(parsedBody, null, 2));
+
         if (!parsedBody.candidates) {
           throw new Error("Invalid completion object");
         }
+
+        // 检查candidates的内容
+        console.log(`🔍 Candidates数量: ${parsedBody.candidates.length}`);
+        parsedBody.candidates.forEach((candidate, index) => {
+          console.log(`🔍 Candidate ${index}:`, JSON.stringify(candidate, null, 2));
+          if (candidate.content && candidate.content.parts) {
+            candidate.content.parts.forEach((part, partIndex) => {
+              console.log(`🔍 Part ${partIndex}:`, JSON.stringify(part, null, 2));
+            });
+          }
+        });
+
         const transformedResponse = processCompletionsResponse(parsedBody, model, id);
 
         body = transformedResponse;
@@ -956,7 +972,13 @@ const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse
 const SEP = "\n\n|>";
 const transformCandidates = (key, cand) => {
   const message = { role: "assistant", content: [] };
+
+  // 添加调试日志
+  console.log(`🔍 transformCandidates - 处理candidate:`, JSON.stringify(cand, null, 2));
+
   for (const part of cand.content?.parts ?? []) {
+    console.log(`🔍 transformCandidates - 处理part:`, JSON.stringify(part, null, 2));
+
     if (part.functionCall) {
       const fc = part.functionCall;
       message.tool_calls = message.tool_calls ?? [];
@@ -968,11 +990,21 @@ const transformCandidates = (key, cand) => {
           arguments: JSON.stringify(fc.args),
         }
       });
-    } else {
+    } else if (part.text !== undefined && part.text !== null) {
+      // 确保只添加有效的文本内容
+      console.log(`🔍 transformCandidates - 添加文本内容: "${part.text}"`);
       message.content.push(part.text);
+    } else {
+      console.log(`🔍 transformCandidates - 跳过空文本part:`, part);
     }
   }
-  message.content = message.content.join(SEP) || null;
+
+  // 修复content处理逻辑
+  const contentText = message.content.join(SEP);
+  message.content = contentText || null;
+
+  console.log(`🔍 transformCandidates - 最终message.content: "${message.content}"`);
+
   return {
     index: cand.index || 0, // 0-index is absent in new -002 models response
     [key]: message,
