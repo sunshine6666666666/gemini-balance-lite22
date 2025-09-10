@@ -13,7 +13,7 @@ import openai from './openai-adapter.js';
 import { enhancedFetch } from './core/api-client.js';
 import { selectApiKeyBalanced } from './core/load-balancer.js';
 import { validateTrustedApiKey, getEffectiveApiKeys, maskApiKey } from './core/security.js';
-import { generateRequestId, logRequest, logLoadBalance, logPerformance, logError, logWarning, logDebug } from './middleware/logger.js';
+import { generateRequestId, logRequest, logRequestDetails, logResponseContent, logLoadBalance, logPerformance, logError, logWarning, logDebug } from './middleware/logger.js';
 import { addCorsHeaders } from './middleware/cors.js';
 import { config, GEMINI_API, OPENAI_ENDPOINTS } from './config/index.js';
 import { safeJsonParse, safeJsonStringify } from './utils/index.js';

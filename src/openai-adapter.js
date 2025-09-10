@@ -13,7 +13,7 @@
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
 import { validateTrustedApiKey } from './core/security.js';
-import { logRequest, logError, logWarning } from './middleware/logger.js';
+import { logRequest, logRequestDetails, logResponseContent, logError, logWarning } from './middleware/logger.js';
 import { GEMINI_API, MODEL_CONFIG, OPENAI_ENDPOINTS } from './config/index.js';
 import { safeJsonStringify } from './utils/index.js';
 
@@ -433,6 +433,9 @@ async function handleCompletions(req, apiKeys, reqId) {
         });
     }
 
+    // 记录请求详情
+    logRequestDetails(reqId, req, model);
+
     // 步骤 3: 转换请求格式
     let body = await transformRequest(req);
     const extra = req.extra_body?.google;
@@ -529,6 +532,11 @@ async function handleCompletions(req, apiKeys, reqId) {
 
   // 记录请求摘要
   logRequest(reqId, 'POST', '/v1/chat/completions', model, apiKeys[0], response.status, totalDuration);
+
+  // 记录响应内容详情
+  if (response.ok && body && typeof body === 'object') {
+    logResponseContent(reqId, body, model, body.usage);
+  }
 
   return new Response(body, fixCors(response));
 }

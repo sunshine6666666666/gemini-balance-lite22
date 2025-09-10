@@ -55,6 +55,35 @@ export function logRequest(reqId, method, path, model, apiKey, status, duration,
 }
 
 /**
+ * @功能概述: 详细响应内容日志 - 记录响应的关键信息
+ */
+export function logResponseContent(reqId, responseData, model, usage) {
+    if (responseData && typeof responseData === 'object') {
+        const content = responseData.choices?.[0]?.message?.content ||
+                       responseData.candidates?.[0]?.content?.parts?.[0]?.text ||
+                       '无内容';
+        const contentPreview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+        const usageInfo = usage ? `输入:${usage.prompt_tokens} 输出:${usage.completion_tokens} 总计:${usage.total_tokens}` : '无使用统计';
+        log('INFO', reqId, '📤', `响应内容: "${contentPreview}" | 模型: ${model} | Token使用: ${usageInfo}`);
+    }
+}
+
+/**
+ * @功能概述: 请求参数详情日志 - 记录重要的请求参数
+ */
+export function logRequestDetails(reqId, requestBody, model) {
+    if (requestBody && typeof requestBody === 'object') {
+        const messageCount = requestBody.messages?.length || 0;
+        const temperature = requestBody.temperature || 'default';
+        const maxTokens = requestBody.max_tokens || 'default';
+        const stream = requestBody.stream ? '流式' : '非流式';
+        const firstMessage = requestBody.messages?.[0]?.content || '无消息';
+        const messagePreview = firstMessage.length > 50 ? firstMessage.substring(0, 50) + '...' : firstMessage;
+        log('INFO', reqId, '📋', `请求详情: "${messagePreview}" | 消息数:${messageCount} | 模型:${model} | 温度:${temperature} | 最大Token:${maxTokens} | 类型:${stream}`);
+    }
+}
+
+/**
  * @功能概述: 负载均衡日志 - 关键的分发信息
  */
 export function logLoadBalance(reqId, selectedIndex, totalKeys, windowOffset, context) {
