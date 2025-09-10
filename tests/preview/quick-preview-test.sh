@@ -5,10 +5,9 @@
 
 # 配置
 PREVIEW_URL="https://gemini-balance-lite22-ayy8t5h0f-showlin666s-projects.vercel.app"
-# Vercel部署保护绕过令牌 - 需要从Vercel Dashboard获取
-BYPASS_SECRET="your_bypass_secret_here"
-# 从.env.local读取API Key
-TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.local | cut -d'=' -f2)
+# 从.env.preview读取配置
+BYPASS_SECRET=$(grep "VERCEL_AUTOMATION_BYPASS_SECRET=" .env.preview | cut -d'=' -f2)
+TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.preview | cut -d'=' -f2)
 FIRST_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f1)
 
 # 构建带绕过令牌的URL

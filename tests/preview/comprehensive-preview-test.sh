@@ -5,8 +5,9 @@
 
 # 配置
 PREVIEW_URL="https://gemini-balance-lite22-ayy8t5h0f-showlin666s-projects.vercel.app"
-# 从.env.local读取真实的API Key进行测试
-TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.local | cut -d'=' -f2)
+# 从.env.preview读取配置进行测试
+BYPASS_SECRET=$(grep "VERCEL_AUTOMATION_BYPASS_SECRET=" .env.preview | cut -d'=' -f2)
+TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.preview | cut -d'=' -f2)
 FIRST_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f1)
 SECOND_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f2)
 MULTI_KEYS="$FIRST_KEY,$SECOND_KEY"
@@ -24,6 +25,12 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {
     echo -e "$1" | tee -a "$LOG_FILE"
+}
+
+# 构建带绕过令牌的URL
+build_url() {
+    local endpoint="$1"
+    echo "${PREVIEW_URL}${endpoint}?x-vercel-set-bypass-cookie=true&x-vercel-protection-bypass=${BYPASS_SECRET}"
 }
 
 # 测试函数
@@ -60,7 +67,7 @@ run_test() {
         curl_cmd="$curl_cmd -d '$data'"
     fi
     
-    curl_cmd="$curl_cmd '$PREVIEW_URL$endpoint'"
+    curl_cmd="$curl_cmd '$(build_url "$endpoint")'"
     
     log "📤 执行命令: $curl_cmd"
     log ""
