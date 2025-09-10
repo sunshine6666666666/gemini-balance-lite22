@@ -433,7 +433,9 @@ async function handleCompletions(req, apiKeys, reqId) {
         });
     }
 
-    // 记录请求详情
+    // 记录请求详情 - 直接使用console.log测试
+    console.log(`[INFO] [ReqID:${reqId}] 📋 请求详情: "${req.messages?.[0]?.content || '无消息'}" | 消息数:${req.messages?.length || 0} | 模型:${model} | 温度:${req.temperature || 'default'} | 最大Token:${req.max_tokens || 'default'} | 类型:${req.stream ? '流式' : '非流式'}`);
+
     try {
         console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录请求详情`);
         logRequestDetails(reqId, req, model);
@@ -539,7 +541,14 @@ async function handleCompletions(req, apiKeys, reqId) {
   // 记录请求摘要
   logRequest(reqId, 'POST', '/v1/chat/completions', model, apiKeys[0], response.status, totalDuration);
 
-  // 记录响应内容详情
+  // 记录响应内容详情 - 直接使用console.log测试
+  if (response.ok && body && typeof body === 'object') {
+    const content = body.choices?.[0]?.message?.content || body.candidates?.[0]?.content?.parts?.[0]?.text || '无内容';
+    const contentPreview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+    const usageInfo = body.usage ? `输入:${body.usage.prompt_tokens} 输出:${body.usage.completion_tokens} 总计:${body.usage.total_tokens}` : '无使用统计';
+    console.log(`[INFO] [ReqID:${reqId}] 📤 响应内容: "${contentPreview}" | 模型: ${model} | Token使用: ${usageInfo}`);
+  }
+
   try {
     console.log(`[DEBUG] [ReqID:${reqId}] 🔍 准备记录响应内容`);
     if (response.ok && body && typeof body === 'object') {
