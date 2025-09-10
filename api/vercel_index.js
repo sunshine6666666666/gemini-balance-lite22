@@ -1,4 +1,4 @@
-import { handleRequest } from "../src/handle_request.js";
+import { handleRequest } from "../src/gemini-handler.js";
 
 export const config = {
   runtime: 'edge' //告诉 Vercel 这是 Edge Function

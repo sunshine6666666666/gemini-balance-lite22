@@ -7,7 +7,7 @@
  */
 
 import { handleVerification } from './verify_keys.js';
-import openai from './openai.mjs';
+import openai from './openai-adapter.js';
 
 // 导入重构后的核心模块
 import { enhancedFetch } from './core/api-client.js';
