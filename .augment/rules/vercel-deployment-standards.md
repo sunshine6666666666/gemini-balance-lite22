@@ -1,3 +1,7 @@
+---
+type: "always_apply"
+---
+
 # Vercel部署规范文档
 ## 严格执行的部署命令标准
 

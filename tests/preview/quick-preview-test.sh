@@ -4,7 +4,7 @@
 # 目标：快速验证核心功能，重点观察console.log
 
 # 配置
-PREVIEW_URL="https://gemini-balance-lite22-ayy8t5h0f-showlin666s-projects.vercel.app"
+PREVIEW_URL="https://gemini-balance-lite22-2t3vi9lq2-showlin666s-projects.vercel.app"
 # 从.env.preview读取配置
 BYPASS_SECRET=$(grep "VERCEL_AUTOMATION_BYPASS_SECRET=" .env.preview | cut -d'=' -f2)
 TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.preview | cut -d'=' -f2)
