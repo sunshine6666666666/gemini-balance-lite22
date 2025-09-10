@@ -133,6 +133,69 @@ export function logPerformance(reqId, operation, duration, status, keyUsed) {
 }
 
 /**
+ * @功能概述: LLM请求开始日志 - 详细的请求信息
+ */
+export function logLLMRequestStart(reqId, method, path, model, userAgent, apiKey) {
+    console.log(`📥 收到请求: ${method} ${path}`);
+    console.log(`✅ 处理API请求: ${method} ${path}`);
+    console.log(`🔍 ===== LLM请求信息 =====`);
+    console.log(`📥 ${method} ${path}`);
+    console.log(`🌐 来源: ${userAgent || '未知'}`);
+    console.log(`📋 关键请求头:`);
+    console.log(`content-type: application/json`);
+    console.log(`user-agent: ${userAgent || 'unknown'}`);
+    if (apiKey) {
+        const maskedKey = `${apiKey.substring(0, 8)}...${apiKey.slice(-8)}`;
+        console.log(`x-goog-api-key: ${maskedKey}`);
+    }
+}
+
+/**
+ * @功能概述: LLM请求体日志 - 详细的请求内容
+ */
+export function logLLMRequestBody(reqId, targetUrl, requestBody, apiKeyCount) {
+    console.log(`🎯 目标URL: ${targetUrl}`);
+    if (apiKeyCount > 1) {
+        console.log(`✅ 使用传入的多个API Key (${apiKeyCount}个)`);
+    }
+    console.log(`🎯 开始请求 - URL: ${targetUrl}, 可用Keys: ${apiKeyCount}`);
+    console.log(`📦 请求体内容:`);
+    try {
+        const bodyStr = typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody, null, 2);
+        console.log(bodyStr);
+    } catch (e) {
+        console.log('[请求体序列化失败]');
+    }
+    console.log(`🔍 ===== LLM请求信息结束 =====`);
+}
+
+/**
+ * @功能概述: LLM响应开始日志 - 响应状态信息
+ */
+export function logLLMResponseStart(reqId, status, duration, apiKey) {
+    const maskedKey = apiKey ? `${apiKey.substring(0, 8)}...` : 'unknown';
+    console.log(`📊 响应: ${status} OK`);
+    console.log(`✅ 请求成功 - 耗时: ${duration}ms, 状态: ${status}, Key: ${maskedKey}`);
+    console.log(`✅ Gemini请求成功 - 状态: ${status}`);
+    console.log(`📤 ===== LLM响应信息 =====`);
+    console.log(`📊 最终响应: ${status} OK`);
+    console.log(`📦 响应体内容:`);
+}
+
+/**
+ * @功能概述: LLM响应体日志 - 详细的响应内容
+ */
+export function logLLMResponseBody(reqId, responseBody) {
+    try {
+        const bodyStr = typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody, null, 2);
+        console.log(bodyStr);
+    } catch (e) {
+        console.log('[响应体序列化失败]');
+    }
+    console.log(`📤 ===== LLM响应信息结束 =====`);
+}
+
+/**
  * @功能概述: 错误日志 - 失败和异常信息
  */
 export function logError(reqId, operation, error, context = null) {

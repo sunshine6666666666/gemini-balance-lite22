@@ -13,7 +13,7 @@ import openai from './openai-adapter.js';
 import { enhancedFetch } from './core/api-client.js';
 import { selectApiKeyBalanced } from './core/load-balancer.js';
 import { validateTrustedApiKey, getEffectiveApiKeys, maskApiKey } from './core/security.js';
-import { generateRequestId, logRequest, logRequestDetails, logResponseContent, logLoadBalance, logPerformance, logError, logWarning, logDebug } from './middleware/logger.js';
+import { generateRequestId, logRequest, logRequestDetails, logResponseContent, logLoadBalance, logPerformance, logError, logWarning, logDebug, logLLMRequestStart, logLLMRequestBody, logLLMResponseStart, logLLMResponseBody } from './middleware/logger.js';
 import { addCorsHeaders } from './middleware/cors.js';
 import { config, GEMINI_API, OPENAI_ENDPOINTS } from './config/index.js';
 import { safeJsonParse, safeJsonStringify } from './utils/index.js';
@@ -160,10 +160,24 @@ export async function handleRequest(request) {
             logDebug(reqId, '请求体处理', '无请求体内容');
         }
 
-        logDebug(reqId, '请求发送', `目标URL: ${targetUrl}`);
-        logDebug(reqId, '请求发送', `请求方法: ${request.method}`);
+        // 记录详细的LLM请求信息
+        const userAgent = request.headers.get('user-agent') || 'unknown';
+        const firstApiKey = apiKeys.length > 0 ? apiKeys[0] : null;
+
+        logLLMRequestStart(reqId, request.method, url.pathname, 'gemini', userAgent, firstApiKey);
+
+        // 记录请求体详情
+        let parsedBody = null;
+        try {
+            parsedBody = requestBodyContent ? JSON.parse(requestBodyContent) : null;
+        } catch (e) {
+            parsedBody = { error: '请求体解析失败' };
+        }
+
+        logLLMRequestBody(reqId, targetUrl, parsedBody, apiKeys.length);
 
         // 使用增强的fetch函数发送请求
+        const startTime = Date.now();
         const response = await enhancedFetch(targetUrl, {
             method: request.method,
             headers: headers,
@@ -171,6 +185,10 @@ export async function handleRequest(request) {
         }, apiKeys, 'gemini', reqId);
 
         const duration = Date.now() - startTime;
+
+        // 记录LLM响应开始信息
+        logLLMResponseStart(reqId, response.status, duration, firstApiKey);
+
         logDebug(reqId, '请求完成', `请求耗时: ${duration}ms，响应状态: ${response.status}`);
 
         // 记录请求摘要
@@ -188,6 +206,22 @@ export async function handleRequest(request) {
         responseHeaders.set('X-Request-ID', reqId);
 
         logDebug(reqId, '响应处理', `响应头处理完成，Content-Type: ${responseHeaders.get('content-type')}`);
+
+        // 记录响应体详情（仅用于日志，不影响流式响应）
+        try {
+            const responseClone = response.clone();
+            const responseText = await responseClone.text();
+            let responseData = null;
+            try {
+                responseData = JSON.parse(responseText);
+            } catch (e) {
+                responseData = { text: responseText.substring(0, 200) + '...' };
+            }
+            logLLMResponseBody(reqId, responseData);
+        } catch (e) {
+            logDebug(reqId, '响应日志', '无法记录响应体详情（可能是流式响应）');
+        }
+
         logDebug(reqId, '响应完成', `最终响应状态: ${response.status}, 总耗时: ${duration}ms`);
 
         // 返回最终响应

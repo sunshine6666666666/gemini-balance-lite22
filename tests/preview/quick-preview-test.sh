@@ -4,17 +4,20 @@
 # 目标：快速验证核心功能，重点观察console.log
 
 # 配置
-PREVIEW_URL="https://gemini-balance-lite22-gsh17dcv7-showlin666s-projects.vercel.app"
+PREVIEW_URL="https://gemini-balance-lite22-evi9vl2ah-showlin666s-projects.vercel.app"
 # 从.env.preview读取配置
-BYPASS_SECRET=$(grep "VERCEL_AUTOMATION_BYPASS_SECRET=" .env.preview | cut -d'=' -f2)
-TRUSTED_KEYS=$(grep "TRUSTED_API_KEYS=" .env.preview | cut -d'=' -f2)
-FIRST_KEY=$(echo "$TRUSTED_KEYS" | cut -d',' -f1)
+BYPASS_SECRET="84kM0tfej2VEXdyQdZs6cLhCmmaePkg1"
+TRUSTED_KEYS="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c,AIzaSyAim8GjbyZmjKHdRE7rMNG8KO33DQ--Udk"
+FIRST_KEY="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c"
 
-# 构建带绕过令牌的URL
+# 构建URL（不带绕过令牌参数）
 build_url() {
     local endpoint="$1"
-    echo "${PREVIEW_URL}${endpoint}?x-vercel-set-bypass-cookie=true&x-vercel-protection-bypass=${BYPASS_SECRET}"
+    echo "${PREVIEW_URL}${endpoint}"
 }
+
+# 绕过令牌作为HTTP头
+BYPASS_HEADER="x-vercel-protection-bypass: ${BYPASS_SECRET}"
 
 # 颜色输出
 GREEN='\033[0;32m'
@@ -36,12 +39,13 @@ log ""
 
 log "${YELLOW}=== 测试1：健康检查 ===${NC}"
 log "🔍 Console.log观察: [文件：vercel_index.js] 静态文件过滤，[文件：gemini-handler.js] 首页处理"
-curl.exe -s -w '\n状态码:%{http_code} 时间:%{time_total}s' "$(build_url "/")" | tee -a "$LOG_FILE"
+curl.exe -s -w '\n状态码:%{http_code} 时间:%{time_total}s' -H "$BYPASS_HEADER" "$(build_url "/")" | tee -a "$LOG_FILE"
 log ""
 
 log "${YELLOW}=== 测试2：OpenAI聊天API ===${NC}"
 log "🔍 Console.log观察: [文件：openai-adapter.js] 格式转换，thoughtsTokenCount，content字段"
 curl.exe -s -w '\n状态码:%{http_code}' --max-time 30 \
+  -H "$BYPASS_HEADER" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $FIRST_KEY" \
   -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Hello, 这是一个测试消息"}],"max_tokens":100}' \
@@ -51,6 +55,7 @@ log ""
 log "${YELLOW}=== 测试3：Gemini原生API ===${NC}"
 log "🔍 Console.log观察: [文件：gemini-handler.js] 原生API处理，负载均衡选择"
 curl.exe -s -w '\n状态码:%{http_code}' --max-time 30 \
+  -H "$BYPASS_HEADER" \
   -H "Content-Type: application/json" \
   -H "x-goog-api-key: $FIRST_KEY" \
   -d '{"contents":[{"role":"user","parts":[{"text":"测试Gemini原生API"}]}],"generationConfig":{"maxOutputTokens":100}}' \
@@ -60,6 +65,7 @@ log ""
 log "${YELLOW}=== 测试4：模型列表 ===${NC}"
 log "🔍 Console.log观察: [文件：openai-adapter.js] 模型列表处理"
 curl.exe -s -w '\n状态码:%{http_code}' \
+  -H "$BYPASS_HEADER" \
   -H "Authorization: Bearer $FIRST_KEY" \
   "$(build_url "/v1/models")" | tee -a "$LOG_FILE"
 log ""
@@ -67,6 +73,7 @@ log ""
 log "${YELLOW}=== 测试5：错误处理 ===${NC}"
 log "🔍 Console.log观察: [文件：openai-adapter.js] 错误处理，Missing API Key"
 curl.exe -s -w '\n状态码:%{http_code}' \
+  -H "$BYPASS_HEADER" \
   "$(build_url "/v1/models")" | tee -a "$LOG_FILE"
 log ""
 
