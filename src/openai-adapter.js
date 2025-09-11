@@ -721,6 +721,11 @@ const transformConfig = (req) => {
       cfg[matchedKey] = req[key];
     }
   }
+
+  // 设置默认的maxOutputTokens，解决content:null问题
+  if (!cfg.maxOutputTokens && !req.max_tokens && !req.max_completion_tokens) {
+    cfg.maxOutputTokens = 1000; // 默认1000 tokens，足够处理大多数场景
+  }
   if (req.response_format) {
     switch (req.response_format.type) {
       case "json_schema":
