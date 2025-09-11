@@ -145,22 +145,8 @@ export async function handleRequest(request) {
 
         logDebug(reqId, 'API Key验证', `最终API Key数量: ${apiKeys.length}，准备发送请求`);
 
-        // 处理请求体内容
-        let requestBodyContent = null;
-        if (request.body) {
-            // 使用ArrayBuffer确保正确的UTF-8编码处理
-            const requestBuffer = await request.arrayBuffer();
-            requestBodyContent = new TextDecoder('utf-8').decode(requestBuffer);
-            logDebug(reqId, '请求体处理', `请求体长度: ${requestBodyContent.length} 字符`);
-            // 记录请求体的前100个字符用于调试
-            if (requestBodyContent.length > 0) {
-                const preview = requestBodyContent.length > 100 ?
-                    requestBodyContent.substring(0, 100) + '...' : requestBodyContent;
-                logDebug(reqId, '请求体内容', `请求体预览: ${preview}`);
-            }
-        } else {
-            logDebug(reqId, '请求体处理', '无请求体内容');
-        }
+        // 简化请求体处理，直接转发
+        logDebug(reqId, '请求体处理', '准备直接转发请求体');
 
         // 记录详细的LLM请求信息
         const userAgent = request.headers.get('user-agent') || 'unknown';
@@ -168,22 +154,12 @@ export async function handleRequest(request) {
 
         logLLMRequestStart(reqId, request.method, url.pathname, 'gemini', userAgent, firstApiKey);
 
-        // 记录请求体详情
-        let parsedBody = null;
-        try {
-            parsedBody = requestBodyContent ? JSON.parse(requestBodyContent) : null;
-        } catch (e) {
-            parsedBody = { error: '请求体解析失败' };
-        }
-
-        logLLMRequestBody(reqId, targetUrl, parsedBody, apiKeys.length);
-
-        // 使用增强的fetch函数发送请求
+        // 使用增强的fetch函数发送请求 - 直接转发
         const startTime = Date.now();
         const response = await enhancedFetch(targetUrl, {
             method: request.method,
             headers: headers,
-            body: requestBodyContent
+            body: request.body  // 直接转发原始请求体，不做任何处理
         }, apiKeys, 'gemini', reqId);
 
         const duration = Date.now() - startTime;

@@ -96,21 +96,11 @@ export default {
             if (request.method === "POST") {
                 logDebug(reqId, '请求体解析', '开始解析POST请求体');
                 try {
-                    const requestClone = request.clone();
-
-                    // 使用ArrayBuffer确保正确的UTF-8编码处理
-                    const requestBuffer = await requestClone.arrayBuffer();
-                    const requestText = new TextDecoder('utf-8').decode(requestBuffer);
-                    console.log(`🔍 原始请求体文本(UTF-8): ${requestText}`);
-
-                    requestBody = JSON.parse(requestText);
+                    // 简化请求体解析，使用原生request.json()避免编码问题
+                    requestBody = await request.json();
                     logDebug(reqId, '请求体解析', `请求体解析成功，模型: ${requestBody?.model || 'unknown'}`);
                     if (requestBody?.messages) {
                         logDebug(reqId, '请求体解析', `消息数量: ${requestBody.messages.length}`);
-                        // 检查消息内容的编码
-                        requestBody.messages.forEach((msg, index) => {
-                            console.log(`🔍 消息${index} - 角色: ${msg.role}, 内容: "${msg.content}"`);
-                        });
                     }
                 } catch (e) {
                     logWarning(reqId, '请求体解析', '请求体JSON解析失败');
@@ -573,30 +563,13 @@ async function handleCompletions(req, apiKeys, reqId) {
         .pipeThrough(new TextEncoderStream());
     } else {
 
-      // 使用ArrayBuffer确保正确的UTF-8编码处理
-      const responseBuffer = await response.arrayBuffer();
-      body = new TextDecoder('utf-8').decode(responseBuffer);
+      // 简化响应处理，使用原生response.json()
+      const parsedBody = await response.json();
 
       try {
-        const parsedBody = JSON.parse(body);
-
-        // 添加详细的Gemini响应调试日志
-        console.log(`🔍 Gemini原始响应:`, JSON.stringify(parsedBody, null, 2));
-
         if (!parsedBody.candidates) {
           throw new Error("Invalid completion object");
         }
-
-        // 检查candidates的内容
-        console.log(`🔍 Candidates数量: ${parsedBody.candidates.length}`);
-        parsedBody.candidates.forEach((candidate, index) => {
-          console.log(`🔍 Candidate ${index}:`, JSON.stringify(candidate, null, 2));
-          if (candidate.content && candidate.content.parts) {
-            candidate.content.parts.forEach((part, partIndex) => {
-              console.log(`🔍 Part ${partIndex}:`, JSON.stringify(part, null, 2));
-            });
-          }
-        });
 
         const transformedResponse = processCompletionsResponse(parsedBody, model, id);
 
@@ -992,26 +965,13 @@ const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse
 };
 const SEP = "\n\n|>";
 const transformCandidates = (key, cand) => {
-  const message = { role: "assistant", content: [] };
+  const message = { role: "assistant", content: null };
 
-  // 添加调试日志
-  console.log(`🔍 transformCandidates - 处理candidate:`, JSON.stringify(cand, null, 2));
+  // 简化处理逻辑，减少深度数据处理
+  if (cand.content && cand.content.parts && cand.content.parts.length > 0) {
+    const textParts = [];
 
-  // 检查content结构
-  if (!cand.content) {
-    console.log(`🔍 transformCandidates - candidate没有content字段`);
-    message.content = null;
-  } else if (!cand.content.parts || cand.content.parts.length === 0) {
-    console.log(`🔍 transformCandidates - candidate.content没有parts或parts为空`);
-    console.log(`🔍 transformCandidates - content结构:`, JSON.stringify(cand.content, null, 2));
-
-    // 对于Gemini 2.5，如果没有parts但有thoughtsTokenCount，说明内容被过滤了
-    message.content = null;
-  } else {
-    // 正常处理parts
     for (const part of cand.content.parts) {
-      console.log(`🔍 transformCandidates - 处理part:`, JSON.stringify(part, null, 2));
-
       if (part.functionCall) {
         const fc = part.functionCall;
         message.tool_calls = message.tool_calls ?? [];
@@ -1023,28 +983,22 @@ const transformCandidates = (key, cand) => {
             arguments: JSON.stringify(fc.args),
           }
         });
-      } else if (part.text !== undefined && part.text !== null) {
-        // 确保只添加有效的文本内容
-        console.log(`🔍 transformCandidates - 添加文本内容: "${part.text}"`);
-        message.content.push(part.text);
-      } else {
-        console.log(`🔍 transformCandidates - 跳过空文本part:`, part);
+      } else if (part.text) {
+        textParts.push(part.text);
       }
     }
 
-    // 修复content处理逻辑
-    const contentText = message.content.join(SEP);
-    message.content = contentText || null;
+    // 简单拼接文本内容
+    if (textParts.length > 0) {
+      message.content = textParts.join(SEP);
+    }
   }
 
-  console.log(`🔍 transformCandidates - 最终message.content: "${message.content}"`);
-
   return {
-    index: cand.index || 0, // 0-index is absent in new -002 models response
+    index: cand.index || 0,
     [key]: message,
     logprobs: null,
     finish_reason: message.tool_calls ? "tool_calls" : reasonsMap[cand.finishReason] || cand.finishReason,
-    //original_finish_reason: cand.finishReason,
   };
 };
 const transformCandidatesMessage = transformCandidates.bind(null, "message");

@@ -4,7 +4,7 @@
 # 重点验证实际的LLM响应内容和质量
 
 # 配置
-PREVIEW_URL="https://gemini-balance-lite22-opfefkgt9-showlin666s-projects.vercel.app"
+PREVIEW_URL="https://gemini-balance-lite22-1rymlzk8p-showlin666s-projects.vercel.app"
 BYPASS_SECRET="84kM0tfej2VEXdyQdZs6cLhCmmaePkg1"
 API_KEY="AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c"
 
