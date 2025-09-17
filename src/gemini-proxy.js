@@ -4,7 +4,7 @@
  */
 
 import { handleVerification } from './verify_keys.js';
-import openai from './openai-adapter.js';
+import openai from '../debug-openai-adapter.js';
 import {
   generateRequestId,
   logRequestStart,
