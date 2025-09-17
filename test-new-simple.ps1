@@ -1,5 +1,5 @@
 # 简单测试新的Preview部署
-$BaseUrl = "https://gemini-balance-lite22-ky03sd52h-showlin666s-projects.vercel.app"
+$BaseUrl = "https://gemini-balance-lite22-bim9mr4e7-showlin666s-projects.vercel.app"
 $BypassToken = "84kM0tfej2VEXdyQdZs6cLhCmmaePkg1"
 $ApiKey = "AIzaSyBx2Vmvef40PCpeOIUGzm1oaRvRlk5Il-c"
 

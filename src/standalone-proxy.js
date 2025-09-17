@@ -144,10 +144,28 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
   console.log(JSON.stringify(geminiRequest, null, 2));
   console.log(`📊 [${reqId}] 请求体大小: ${JSON.stringify(geminiRequest).length} 字符`);
 
-  // 发送请求到Gemini
-  const model = 'gemini-2.5-flash';
-  const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // 发送请求到Gemini - 使用用户请求的模型，不篡改
+  let model = openaiRequest.model;
 
+  // 如果用户请求的是OpenAI模型，映射到对应的Gemini模型
+  const modelMapping = {
+    'gpt-3.5-turbo': 'gemini-2.5-flash',
+    'gpt-4': 'gemini-2.5-pro',
+    'gpt-4-turbo': 'gemini-2.5-pro'
+  };
+
+  // 如果是OpenAI模型名，映射到Gemini；如果已经是Gemini模型名，直接使用
+  if (modelMapping[model]) {
+    console.log(`[${reqId}] 模型映射: ${model} -> ${modelMapping[model]}`);
+    model = modelMapping[model];
+  } else if (model.startsWith('gemini-')) {
+    console.log(`[${reqId}] 使用Gemini模型: ${model}`);
+  } else {
+    console.log(`[${reqId}] 未知模型 ${model}，使用默认: gemini-2.5-flash`);
+    model = 'gemini-2.5-flash';
+  }
+
+  const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   console.log(`[${reqId}] 发送到Gemini: ${model}`);
 
   try {
@@ -170,24 +188,31 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
     console.log(JSON.stringify(geminiResponse, null, 2));
     console.log(`📊 [${reqId}] 响应体大小: ${JSON.stringify(geminiResponse).length} 字符`);
 
-    // 转换为OpenAI格式
+    // 转换为OpenAI格式 - 完全不篡改数据
+    const geminiContent = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    // 如果Gemini没有返回内容，直接返回错误而不是篡改数据
+    if (!geminiContent) {
+      throw new Error("Gemini API未返回有效内容");
+    }
+
     const openaiResponse = {
       id: `chatcmpl-${reqId}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: "gpt-3.5-turbo",
+      model: openaiRequest.model, // 使用原始请求的模型名，不篡改
       choices: [{
         index: 0,
         message: {
           role: "assistant",
-          content: geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || "抱歉，无法生成回复。"
+          content: geminiContent // 直接使用Gemini返回的内容，不篡改
         },
-        finish_reason: "stop"
+        finish_reason: geminiResponse.candidates?.[0]?.finishReason?.toLowerCase() || "stop"
       }],
       usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
+        prompt_tokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
+        completion_tokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0,
+        total_tokens: geminiResponse.usageMetadata?.totalTokenCount || 0
       }
     };
 
@@ -224,24 +249,25 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
 }
 
 /**
- * 处理模型列表请求
+ * 处理模型列表请求 - 返回真实可用的Gemini模型
  */
 function handleModels(reqId) {
-  console.log(`[${reqId}] 返回模型列表`);
-  
+  console.log(`[${reqId}] 返回真实Gemini模型列表`);
+
+  // 返回真实可用的Gemini模型，不伪装成OpenAI模型
   const models = {
     object: "list",
     data: [
-      { id: "gpt-3.5-turbo", object: "model", created: 1677610602, owned_by: "openai" },
-      { id: "gpt-4", object: "model", created: 1687882411, owned_by: "openai" },
       { id: "gemini-2.5-flash", object: "model", created: 1687882411, owned_by: "google" },
-      { id: "gemini-2.5-pro", object: "model", created: 1687882411, owned_by: "google" }
+      { id: "gemini-2.5-flash-lite", object: "model", created: 1687882411, owned_by: "google" },
+      { id: "gemini-2.5-pro", object: "model", created: 1687882411, owned_by: "google" },
+      { id: "gemini-1.5-pro", object: "model", created: 1687882411, owned_by: "google" }
     ]
   };
 
   return new Response(JSON.stringify(models), {
     status: 200,
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*'
     }
