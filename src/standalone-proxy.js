@@ -144,25 +144,18 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
   console.log(JSON.stringify(geminiRequest, null, 2));
   console.log(`📊 [${reqId}] 请求体大小: ${JSON.stringify(geminiRequest).length} 字符`);
 
-  // 发送请求到Gemini - 使用用户请求的模型，不篡改
+  // 发送请求到Gemini - 简化映射策略
   let model = openaiRequest.model;
 
-  // 如果用户请求的是OpenAI模型，映射到对应的Gemini模型
-  const modelMapping = {
-    'gpt-3.5-turbo': 'gemini-2.5-flash',
-    'gpt-4': 'gemini-2.5-pro',
-    'gpt-4-turbo': 'gemini-2.5-pro'
-  };
-
-  // 如果是OpenAI模型名，映射到Gemini；如果已经是Gemini模型名，直接使用
-  if (modelMapping[model]) {
-    console.log(`[${reqId}] 模型映射: ${model} -> ${modelMapping[model]}`);
-    model = modelMapping[model];
+  // 简化映射：所有GPT模型都映射到gemini-2.5-flash-lite (适合Vercel 25秒限制)
+  if (model.startsWith('gpt-')) {
+    console.log(`[${reqId}] GPT模型映射: ${model} -> gemini-2.5-flash-lite (适合Vercel限制)`);
+    model = 'gemini-2.5-flash-lite';
   } else if (model.startsWith('gemini-')) {
     console.log(`[${reqId}] 使用Gemini模型: ${model}`);
   } else {
-    console.log(`[${reqId}] 未知模型 ${model}，使用默认: gemini-2.5-flash`);
-    model = 'gemini-2.5-flash';
+    console.log(`[${reqId}] 未知模型 ${model}，使用默认: gemini-2.5-flash-lite`);
+    model = 'gemini-2.5-flash-lite';
   }
 
   const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -188,29 +181,36 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
     console.log(JSON.stringify(geminiResponse, null, 2));
     console.log(`📊 [${reqId}] 响应体大小: ${JSON.stringify(geminiResponse).length} 字符`);
 
-    // 转换为OpenAI格式 - 简化版本先确保工作
-    const geminiContent = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+    // 转换为OpenAI格式 - 完全透明转发
+    const candidate = geminiResponse.candidates?.[0];
+    const geminiContent = candidate?.content?.parts?.[0]?.text;
 
-    // 如果Gemini没有返回内容，使用错误信息而不是默认回复
-    const responseContent = geminiContent || "API未返回有效内容";
+    // 如果Gemini没有返回内容，提供详细的错误信息
+    if (!geminiContent) {
+      if (candidate?.finishReason === "MAX_TOKENS") {
+        throw new Error(`响应被截断：max_tokens过小，Gemini使用了${geminiResponse.usageMetadata?.thoughtsTokenCount || 0}个思考token`);
+      } else {
+        throw new Error(`Gemini API未返回文本内容，finishReason: ${candidate?.finishReason || 'unknown'}`);
+      }
+    }
 
     const openaiResponse = {
       id: `chatcmpl-${reqId}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: openaiRequest.model, // 使用原始请求的模型名
+      model: openaiRequest.model, // 使用原始请求的模型名，完全透明
       choices: [{
         index: 0,
         message: {
           role: "assistant",
-          content: responseContent
+          content: geminiContent // 直接使用Gemini返回的内容，不篡改
         },
-        finish_reason: "stop"
+        finish_reason: (candidate?.finishReason || "STOP").toLowerCase()
       }],
       usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
+        prompt_tokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
+        completion_tokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0,
+        total_tokens: geminiResponse.usageMetadata?.totalTokenCount || 0
       }
     };
 
