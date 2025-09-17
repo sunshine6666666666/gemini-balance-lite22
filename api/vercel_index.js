@@ -1,4 +1,4 @@
-import { handleRequest } from "../src/gemini-proxy.js";
+import { handleRequest } from "../src/standalone-proxy.js";
 
 export const config = {
   runtime: 'edge' //告诉 Vercel 这是 Edge Function
