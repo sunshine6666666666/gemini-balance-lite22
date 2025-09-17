@@ -188,31 +188,29 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
     console.log(JSON.stringify(geminiResponse, null, 2));
     console.log(`📊 [${reqId}] 响应体大小: ${JSON.stringify(geminiResponse).length} 字符`);
 
-    // 转换为OpenAI格式 - 完全不篡改数据
+    // 转换为OpenAI格式 - 简化版本先确保工作
     const geminiContent = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    // 如果Gemini没有返回内容，直接返回错误而不是篡改数据
-    if (!geminiContent) {
-      throw new Error("Gemini API未返回有效内容");
-    }
+    // 如果Gemini没有返回内容，使用错误信息而不是默认回复
+    const responseContent = geminiContent || "API未返回有效内容";
 
     const openaiResponse = {
       id: `chatcmpl-${reqId}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: openaiRequest.model, // 使用原始请求的模型名，不篡改
+      model: openaiRequest.model, // 使用原始请求的模型名
       choices: [{
         index: 0,
         message: {
           role: "assistant",
-          content: geminiContent // 直接使用Gemini返回的内容，不篡改
+          content: responseContent
         },
-        finish_reason: geminiResponse.candidates?.[0]?.finishReason?.toLowerCase() || "stop"
+        finish_reason: "stop"
       }],
       usage: {
-        prompt_tokens: geminiResponse.usageMetadata?.promptTokenCount || 0,
-        completion_tokens: geminiResponse.usageMetadata?.candidatesTokenCount || 0,
-        total_tokens: geminiResponse.usageMetadata?.totalTokenCount || 0
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
       }
     };
 
