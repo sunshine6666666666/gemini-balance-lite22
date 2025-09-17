@@ -47,12 +47,31 @@ export async function handleRequest(request) {
     
   } catch (error) {
     console.log(`[${reqId}] 错误: ${error.message}`);
-    return new Response(JSON.stringify({
+
+    // 🔍 详细记录主错误信息
+    console.log(`❌ [${reqId}] === 主错误处理详情 ===`);
+    console.log(`📝 [${reqId}] 错误类型: ${error.constructor.name}`);
+    console.log(`📝 [${reqId}] 错误消息: ${error.message}`);
+    if (error.stack) {
+      console.log(`📝 [${reqId}] 错误堆栈:`);
+      console.log(error.stack);
+    }
+
+    const errorResponse = {
       error: {
         message: error.message,
-        type: "proxy_error"
+        type: "proxy_error",
+        timestamp: new Date().toISOString(),
+        requestId: reqId
       }
-    }), {
+    };
+
+    // 🔍 详细记录错误响应体
+    console.log(`📤 [${reqId}] === 错误响应体详情 ===`);
+    console.log(`📝 [${reqId}] 错误响应体 (格式化):`);
+    console.log(JSON.stringify(errorResponse, null, 2));
+
+    return new Response(JSON.stringify(errorResponse), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -95,6 +114,12 @@ async function handleOpenAIRequest(request, reqId) {
 async function handleChatCompletions(openaiRequest, apiKey, reqId) {
   console.log(`[${reqId}] 开始格式转换`);
 
+  // 🔍 详细记录OpenAI请求体 - 高可读性JSON
+  console.log(`📥 [${reqId}] === OpenAI请求体详情 ===`);
+  console.log(`📝 [${reqId}] OpenAI请求体 (格式化):`);
+  console.log(JSON.stringify(openaiRequest, null, 2));
+  console.log(`📊 [${reqId}] 请求体大小: ${JSON.stringify(openaiRequest).length} 字符`);
+
   // 转换消息格式
   const geminiContents = openaiRequest.messages.map(msg => ({
     role: msg.role === 'assistant' ? 'model' : msg.role,
@@ -113,10 +138,16 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
 
   console.log(`[${reqId}] 转换完成: ${geminiContents.length}条消息`);
 
+  // 🔍 详细记录Gemini请求体 - 高可读性JSON
+  console.log(`📤 [${reqId}] === Gemini请求体详情 ===`);
+  console.log(`📝 [${reqId}] Gemini请求体 (格式化):`);
+  console.log(JSON.stringify(geminiRequest, null, 2));
+  console.log(`📊 [${reqId}] 请求体大小: ${JSON.stringify(geminiRequest).length} 字符`);
+
   // 发送请求到Gemini
   const model = 'gemini-2.5-flash';
   const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  
+
   console.log(`[${reqId}] 发送到Gemini: ${model}`);
 
   try {
@@ -132,6 +163,12 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
 
     const geminiResponse = await response.json();
     console.log(`[${reqId}] Gemini响应成功`);
+
+    // 🔍 详细记录Gemini响应体 - 高可读性JSON
+    console.log(`📥 [${reqId}] === Gemini响应体详情 ===`);
+    console.log(`📝 [${reqId}] Gemini响应体 (格式化):`);
+    console.log(JSON.stringify(geminiResponse, null, 2));
+    console.log(`📊 [${reqId}] 响应体大小: ${JSON.stringify(geminiResponse).length} 字符`);
 
     // 转换为OpenAI格式
     const openaiResponse = {
@@ -155,7 +192,13 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
     };
 
     console.log(`[${reqId}] 格式转换完成`);
-    
+
+    // 🔍 详细记录OpenAI响应体 - 高可读性JSON
+    console.log(`📤 [${reqId}] === OpenAI响应体详情 ===`);
+    console.log(`📝 [${reqId}] OpenAI响应体 (格式化):`);
+    console.log(JSON.stringify(openaiResponse, null, 2));
+    console.log(`📊 [${reqId}] 响应体大小: ${JSON.stringify(openaiResponse).length} 字符`);
+
     return new Response(JSON.stringify(openaiResponse), {
       status: 200,
       headers: { 
@@ -166,6 +209,16 @@ async function handleChatCompletions(openaiRequest, apiKey, reqId) {
 
   } catch (error) {
     console.log(`[${reqId}] Gemini请求失败: ${error.message}`);
+
+    // 🔍 详细记录错误信息
+    console.log(`❌ [${reqId}] === 错误详情 ===`);
+    console.log(`📝 [${reqId}] 错误类型: ${error.constructor.name}`);
+    console.log(`📝 [${reqId}] 错误消息: ${error.message}`);
+    if (error.stack) {
+      console.log(`📝 [${reqId}] 错误堆栈:`);
+      console.log(error.stack);
+    }
+
     throw error;
   }
 }
