@@ -413,7 +413,7 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
       throw new Error(`Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
     }
 
-    console.log(`[${reqId}] Gemini流式响应开始，状态: ${geminiResponse.status}`);
+    console.log(`[${reqId}] 🌊 Gemini流式响应开始，状态: ${geminiResponse.status}`);
 
     // 创建转换流
     const stream = new ReadableStream({
@@ -424,12 +424,16 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
         let chunkCount = 0;
         let accumulatedContent = '';
 
+        console.log(`[${reqId}] 🔧 开始读取Gemini流式响应...`);
+
         try {
           while (true) {
+            console.log(`[${reqId}] 🔄 等待读取数据块...`);
             const { done, value } = await reader.read();
+            console.log(`[${reqId}] 📥 读取结果: done=${done}, value存在=${!!value}, value长度=${value ? value.length : 0}`);
 
             if (done) {
-              console.log(`[${reqId}] Gemini流式响应完成，共处理${chunkCount}个数据块`);
+              console.log(`[${reqId}] 🏁 Gemini流式响应完成，共处理${chunkCount}个数据块`);
 
               // 发送最终的完成块
               const finalChunk = {
