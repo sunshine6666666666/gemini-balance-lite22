@@ -217,25 +217,68 @@ export function newUtilityFunction(param) {
 
 ## 🧪 测试架构
 
-### 测试文件目录结构
+### 🚨 重要测试规范 - 必须遵守
+
+#### **测试脚本语言要求**
+- ✅ **必须使用JavaScript**: 所有测试脚本必须用JavaScript编写
+- ❌ **禁止使用PowerShell**: 绝对不允许使用PowerShell (.ps1) 进行测试
+- 🎯 **原因**: JavaScript提供更好的跨平台兼容性和JSON处理能力
+
+#### **测试文件目录结构**
 ```
 tests/
-├── local/          # 本地开发测试
-│   ├── basic/      # 基础功能测试
-│   ├── models/     # 模型测试
-│   └── stress/     # 压力测试
-├── preview/        # Preview环境测试
-│   ├── api/        # API功能测试
-│   ├── models/     # 模型映射测试
-│   └── integration/ # 集成测试
+├── local/          # 本地开发测试 (使用JavaScript)
+│   ├── test-basic-params.js      # 基础参数测试
+│   ├── test-advanced-features.js # 高级功能测试
+│   ├── test-models-mapping.js    # 模型映射测试
+│   └── test-stress-load.js       # 压力测试
+├── preview/        # Preview环境测试 (使用JavaScript)
+│   ├── test-api-compatibility.js # API兼容性测试
+│   ├── test-streaming-response.js # 流式响应测试
+│   ├── test-json-mode.js         # JSON模式测试
+│   └── test-integration-full.js  # 完整集成测试
 └── README.md       # 测试文档
 ```
 
 ### 测试文件规范
 - **本地测试**: 放在 `tests/local/` 目录下，用于开发调试
 - **Preview测试**: 放在 `tests/preview/` 目录下，用于真实环境验证
-- **命名规范**: `test-{功能}-{环境}.ps1` 或 `{功能}-test.js`
+- **命名规范**: `test-{功能}-{描述}.js` (必须是JavaScript文件)
+- **执行方式**: 使用 `node tests/preview/test-xxx.js` 执行
 - **敏感数据**: 测试文件包含API Key等敏感信息，已在.gitignore中排除
+
+### JavaScript测试脚本模板
+```javascript
+#!/usr/bin/env node
+// 标准的JavaScript测试脚本模板
+
+const https = require('https');
+
+// 测试配置
+const config = {
+  hostname: 'your-preview-url.vercel.app',
+  apiKey: 'your-api-key',
+  timeout: 30000
+};
+
+// 测试函数
+async function runTest() {
+  console.log('🧪 开始测试...');
+
+  try {
+    const result = await makeRequest({
+      // 测试参数
+    });
+
+    console.log('✅ 测试成功:', result);
+  } catch (error) {
+    console.error('❌ 测试失败:', error.message);
+  }
+}
+
+// 执行测试
+runTest().catch(console.error);
+```
 
 ### 文档目录结构
 ```
