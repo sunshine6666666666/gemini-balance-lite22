@@ -451,44 +451,44 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
 
             const lines = event.split('\n');
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.slice(6).trim();
-              if (jsonStr && jsonStr !== '[DONE]') {
-                try {
-                  const geminiData = JSON.parse(jsonStr);
-                  console.log(`[${reqId}] � 解析Gemini数据: ${JSON.stringify(geminiData, null, 2).substring(0, 300)}...`);
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.slice(6).trim();
+                if (jsonStr && jsonStr !== '[DONE]') {
+                  try {
+                    const geminiData = JSON.parse(jsonStr);
+                    console.log(`[${reqId}] 解析Gemini数据成功`);
 
-                  // 提取文本内容
-                  const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    // 提取文本内容
+                    const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-                  if (text) {
-                    accumulatedContent += text;
-                    console.log(`[${reqId}] ✅ 提取到文本: "${text}"`);
+                    if (text) {
+                      console.log(`[${reqId}] 提取到文本: "${text}"`);
 
-                    // 转换为OpenAI格式并立即发送
-                    const openaiChunk = {
-                      id: `chatcmpl-${reqId}`,
-                      object: "chat.completion.chunk",
-                      created: Math.floor(Date.now() / 1000),
-                      model: openaiRequest.model,
-                      choices: [{
-                        index: 0,
-                        delta: { content: text },
-                        finish_reason: null
-                      }]
-                    };
+                      // 转换为OpenAI格式并立即发送
+                      const openaiChunk = {
+                        id: `chatcmpl-${reqId}`,
+                        object: "chat.completion.chunk",
+                        created: Math.floor(Date.now() / 1000),
+                        model: openaiRequest.model,
+                        choices: [{
+                          index: 0,
+                          delta: { content: text },
+                          finish_reason: null
+                        }]
+                      };
 
-                    const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
-                    console.log(`[${reqId}] 📤 发送OpenAI SSE数据: ${sseData.substring(0, 200)}...`);
-                    controller.enqueue(new TextEncoder().encode(sseData));
+                      const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
+                      console.log(`[${reqId}] 发送OpenAI SSE数据`);
+                      controller.enqueue(new TextEncoder().encode(sseData));
+                    }
+
+                    // 检查是否有完成标记
+                    if (geminiData.candidates?.[0]?.finishReason) {
+                      console.log(`[${reqId}] Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
+                    }
+                  } catch (parseError) {
+                    console.warn(`[${reqId}] JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
                   }
-
-                  // 检查是否有完成标记
-                  if (geminiData.candidates?.[0]?.finishReason) {
-                    console.log(`[${reqId}] 🏁 Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
-                  }
-                } catch (parseError) {
-                  console.warn(`[${reqId}] ⚠️ JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
                 }
               }
             }
