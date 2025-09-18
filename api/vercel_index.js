@@ -121,6 +121,25 @@ async function handleChatCompletions(request, reqId) {
     const isStreaming = openaiRequest.stream === true;
     console.log(`[${reqId}] 流式请求: ${isStreaming}`);
 
+    // 检查并记录所有OpenAI参数
+    console.log(`[${reqId}] 📊 OpenAI参数解析:`);
+    console.log(`[${reqId}]   - temperature: ${openaiRequest.temperature} (默认: 0.7)`);
+    console.log(`[${reqId}]   - max_tokens: ${openaiRequest.max_tokens} (计算默认值)`);
+    console.log(`[${reqId}]   - top_p: ${openaiRequest.top_p} (默认: 1.0)`);
+    console.log(`[${reqId}]   - top_k: ${openaiRequest.top_k} (可选)`);
+    console.log(`[${reqId}]   - frequency_penalty: ${openaiRequest.frequency_penalty} (可选)`);
+    console.log(`[${reqId}]   - presence_penalty: ${openaiRequest.presence_penalty} (可选)`);
+    console.log(`[${reqId}]   - stop: ${openaiRequest.stop ? JSON.stringify(openaiRequest.stop) : '未设置'}`);
+    console.log(`[${reqId}]   - n: ${openaiRequest.n} (生成数量)`);
+    console.log(`[${reqId}]   - stream: ${openaiRequest.stream} (流式模式)`);
+
+    if (openaiRequest.response_format) {
+      console.log(`[${reqId}] 检测到response_format: ${JSON.stringify(openaiRequest.response_format)}`);
+      if (openaiRequest.response_format.type === 'json_object') {
+        console.log(`[${reqId}] 启用强制JSON模式: responseMimeType = application/json`);
+      }
+    }
+
     // 扩展模型映射：所有非Gemini模型映射到gemini-2.5-flash-lite
     let model = openaiRequest.model;
     if (model.startsWith('gemini-')) {
@@ -228,10 +247,43 @@ async function handleChatCompletions(request, reqId) {
         };
       }),
       generationConfig: {
-        temperature: openaiRequest.temperature || 0.7,
+        // 基础参数映射
+        temperature: openaiRequest.temperature !== undefined ? openaiRequest.temperature : 0.7,
         maxOutputTokens: openaiRequest.max_tokens || calculateDefaultTokens(openaiRequest.messages),
-        topP: openaiRequest.top_p || 1.0
-      }
+        topP: openaiRequest.top_p !== undefined ? openaiRequest.top_p : 1.0,
+
+        // 新增参数映射
+        ...(openaiRequest.top_k !== undefined && { topK: openaiRequest.top_k }),
+        ...(openaiRequest.frequency_penalty !== undefined && { frequencyPenalty: openaiRequest.frequency_penalty }),
+        ...(openaiRequest.presence_penalty !== undefined && { presencePenalty: openaiRequest.presence_penalty }),
+        ...(openaiRequest.stop && { stopSequences: Array.isArray(openaiRequest.stop) ? openaiRequest.stop : [openaiRequest.stop] }),
+
+        // 处理OpenAI的response_format参数
+        ...(openaiRequest.response_format?.type === 'json_object' && {
+          responseMimeType: 'application/json'
+        }),
+
+        // 处理其他高级参数
+        ...(openaiRequest.seed !== undefined && { seed: openaiRequest.seed }),
+        ...(openaiRequest.logit_bias && { logitBias: openaiRequest.logit_bias })
+      },
+
+      // 处理安全设置（如果需要）
+      ...(openaiRequest.safety_settings && {
+        safetySettings: openaiRequest.safety_settings
+      }),
+
+      // 处理工具调用（如果需要）
+      ...(openaiRequest.tools && {
+        tools: openaiRequest.tools
+      }),
+
+      // 处理系统指令（如果需要）
+      ...(openaiRequest.system && {
+        systemInstruction: {
+          parts: [{ text: openaiRequest.system }]
+        }
+      })
     };
 
     console.log(`[${reqId}] Gemini请求: ${JSON.stringify(geminiRequest, null, 2)}`);
@@ -338,18 +390,15 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     attemptCount++;
 
-    // 选择未使用过的API Key
-    let selectedApiKey;
-    let keyIndex = 0;
-    do {
-      selectedApiKey = selectApiKeyBalanced(apiKeys);
-      keyIndex++;
-      // 如果时间窗口算法返回已用过的Key，手动选择下一个
-      if (usedKeys.has(selectedApiKey) && keyIndex < apiKeys.length) {
-        const currentIndex = apiKeys.indexOf(selectedApiKey);
-        selectedApiKey = apiKeys[(currentIndex + attempt) % apiKeys.length];
-      }
-    } while (usedKeys.has(selectedApiKey) && usedKeys.size < apiKeys.length);
+    // 选择未使用过的API Key - 修复：直接使用轮询避免重复选择
+    let selectedApiKey = apiKeys[attempt % apiKeys.length];
+
+    // 确保不重复使用已失败的Key
+    let keyAttempts = 0;
+    while (usedKeys.has(selectedApiKey) && keyAttempts < apiKeys.length) {
+      keyAttempts++;
+      selectedApiKey = apiKeys[(attempt + keyAttempts) % apiKeys.length];
+    }
 
     usedKeys.add(selectedApiKey);
     logLoadBalance(reqId, selectedApiKey, apiKeys.length, `流式请求尝试${attemptCount}`);
@@ -452,60 +501,59 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
 
           // 使用缓冲机制处理分割的SSE数据
           sseBuffer += chunk;
+          console.log(`[${reqId}] 📄 原始Gemini数据: ${chunk.substring(0, 200)}...`);
 
-          // 按双换行符分割SSE事件
-          const events = sseBuffer.split('\n\n');
+          // 按行分割处理SSE数据
+          const lines = sseBuffer.split('\n');
 
-          // 保留最后一个可能不完整的事件
-          sseBuffer = events.pop() || '';
-          console.log(`[${reqId}] 处理${events.length}个完整事件，缓冲区剩余: ${sseBuffer.length}字符`);
+          // 保留最后一行（可能不完整）
+          sseBuffer = lines.pop() || '';
 
-          // 处理完整的SSE事件
-          for (const event of events) {
-            if (!event.trim()) continue; // 跳过空事件
+          console.log(`[${reqId}] 处理${lines.length}行数据，缓冲区剩余: ${sseBuffer.length}字符`);
 
-            const lines = event.split('\n');
+          // 处理每一行
           for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const jsonStr = line.slice(6).trim();
-                if (jsonStr && jsonStr !== '[DONE]') {
-                  try {
-                    const geminiData = JSON.parse(jsonStr);
-                    console.log(`[${reqId}] 解析Gemini数据成功`);
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              console.log(`[${reqId}] 📋 提取JSON: ${jsonStr.substring(0, 100)}...`);
 
-                    // 提取文本内容
-                    const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const geminiData = JSON.parse(jsonStr);
+                  console.log(`[${reqId}] ✅ 解析Gemini数据成功:`, JSON.stringify(geminiData, null, 2));
 
-                    if (text) {
-                      console.log(`[${reqId}] 提取到文本: "${text}"`);
+                  // 提取文本内容
+                  const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-                      // 转换为标准OpenAI流式格式
-                      const openaiChunk = {
-                        id: `chatcmpl-${reqId}`,
-                        object: "chat.completion.chunk",
-                        created: Math.floor(Date.now() / 1000),
-                        model: openaiRequest.model,
-                        system_fingerprint: null,
-                        choices: [{
-                          index: 0,
-                          delta: { content: text },
-                          logprobs: null,
-                          finish_reason: null
-                        }]
-                      };
+                  if (text) {
+                    console.log(`[${reqId}] 📝 提取到文本: "${text}"`);
 
-                      const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
-                      console.log(`[${reqId}] 发送OpenAI SSE数据`);
-                      controller.enqueue(new TextEncoder().encode(sseData));
-                    }
+                    // 转换为标准OpenAI流式格式
+                    const openaiChunk = {
+                      id: `chatcmpl-${reqId}`,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: openaiRequest.model,
+                      system_fingerprint: null,
+                      choices: [{
+                        index: 0,
+                        delta: { content: text },
+                        logprobs: null,
+                        finish_reason: null
+                      }]
+                    };
 
-                    // 检查是否有完成标记
-                    if (geminiData.candidates?.[0]?.finishReason) {
-                      console.log(`[${reqId}] Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
-                    }
-                  } catch (parseError) {
-                    console.warn(`[${reqId}] JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
+                    const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
+                    console.log(`[${reqId}] 🚀 发送OpenAI SSE数据: ${text}`);
+                    controller.enqueue(new TextEncoder().encode(sseData));
                   }
+
+                  // 检查是否有完成标记
+                  if (geminiData.candidates?.[0]?.finishReason) {
+                    console.log(`[${reqId}] Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
+                  }
+                } catch (parseError) {
+                  console.warn(`[${reqId}] JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
                 }
               }
             }
