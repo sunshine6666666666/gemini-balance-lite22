@@ -329,16 +329,29 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
 async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId) {
   console.log(`[${reqId}] 🌊 流式请求使用负载均衡，共${apiKeys.length}个API Key`);
 
-  // API Key重试机制 - 修复：轮询所有可用的API Key
+  // API Key重试机制 - 修复：尝试所有可用的API Key
   let lastError = null;
   let attemptCount = 0;
   const maxAttempts = apiKeys.length; // 尝试所有可用的API Key
+  const usedKeys = new Set(); // 记录已使用的Key，避免重复
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     attemptCount++;
 
-    // 轮询选择API Key，确保每次重试使用不同的Key
-    const selectedApiKey = apiKeys[attempt % apiKeys.length];
+    // 选择未使用过的API Key
+    let selectedApiKey;
+    let keyIndex = 0;
+    do {
+      selectedApiKey = selectApiKeyBalanced(apiKeys);
+      keyIndex++;
+      // 如果时间窗口算法返回已用过的Key，手动选择下一个
+      if (usedKeys.has(selectedApiKey) && keyIndex < apiKeys.length) {
+        const currentIndex = apiKeys.indexOf(selectedApiKey);
+        selectedApiKey = apiKeys[(currentIndex + attempt) % apiKeys.length];
+      }
+    } while (usedKeys.has(selectedApiKey) && usedKeys.size < apiKeys.length);
+
+    usedKeys.add(selectedApiKey);
     logLoadBalance(reqId, selectedApiKey, apiKeys.length, `流式请求尝试${attemptCount}`);
 
     const geminiStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${selectedApiKey}`;
