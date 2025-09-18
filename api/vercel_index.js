@@ -394,6 +394,8 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
   logLoadBalance(reqId, selectedApiKey, apiKeys.length, "流式请求轮询");
 
   const geminiStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${selectedApiKey}`;
+  console.log(`[${reqId}] 🌐 Gemini流式请求URL: ${geminiStreamUrl}`);
+  console.log(`[${reqId}] 📤 Gemini流式请求体: ${JSON.stringify(geminiRequest, null, 2)}`);
 
   try {
     const geminiResponse = await fetch(geminiStreamUrl, {
@@ -402,9 +404,12 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
       body: JSON.stringify(geminiRequest)
     });
 
+    console.log(`[${reqId}] 📥 Gemini流式响应状态: ${geminiResponse.status}`);
+    console.log(`[${reqId}] 📥 Gemini流式响应头: ${JSON.stringify(Object.fromEntries(geminiResponse.headers.entries()))}`);
+
     if (!geminiResponse.ok) {
       const errorData = await geminiResponse.text();
-      console.error(`[${reqId}] Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
+      console.error(`[${reqId}] ❌ Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
       throw new Error(`Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
     }
 
@@ -447,7 +452,8 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
 
             chunkCount++;
             const chunk = decoder.decode(value, { stream: true });
-            console.log(`[${reqId}] 处理流式数据块 ${chunkCount}，长度: ${chunk.length}`);
+            console.log(`[${reqId}] 📦 处理流式数据块 ${chunkCount}，长度: ${chunk.length}`);
+            console.log(`[${reqId}] 📦 数据块内容: ${JSON.stringify(chunk.substring(0, 300))}...`);
 
             // 使用SSE解析器处理数据块 - 修复JSON分割问题
             const events = sseParser.parse(chunk);
