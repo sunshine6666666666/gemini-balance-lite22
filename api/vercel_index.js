@@ -103,12 +103,24 @@ async function handleChatCompletions(request, reqId) {
     }
     const apiKey = authHeader.substring(7);
 
-    // 转换为Gemini格式
+    // 转换为Gemini格式 - 正确处理角色映射
     const geminiRequest = {
-      contents: openaiRequest.messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : msg.role,
-        parts: [{ text: msg.content }]
-      })),
+      contents: openaiRequest.messages.map(msg => {
+        let role;
+        if (msg.role === 'assistant') {
+          role = 'model';
+        } else if (msg.role === 'system') {
+          // Gemini不支持system角色，将其转换为user角色
+          role = 'user';
+        } else {
+          role = msg.role; // user角色保持不变
+        }
+
+        return {
+          role: role,
+          parts: [{ text: msg.content }]
+        };
+      }),
       generationConfig: {
         temperature: openaiRequest.temperature || 0.7,
         maxOutputTokens: openaiRequest.max_tokens || 1024,
