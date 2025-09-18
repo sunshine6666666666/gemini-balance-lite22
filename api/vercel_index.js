@@ -401,6 +401,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
       const decoder = new TextDecoder();
       let chunkCount = 0;
       let accumulatedContent = '';
+      let sseBuffer = ''; // 用于缓冲不完整的SSE数据
 
       console.log(`[${reqId}] 🔧 开始读取Gemini流式响应...`);
 
@@ -434,8 +435,21 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
           const chunk = decoder.decode(value, { stream: true });
           console.log(`[${reqId}] 📦 处理流式数据块 ${chunkCount}，长度: ${chunk.length}`);
 
-          // 直接解析SSE数据，不使用复杂的解析器
-          const lines = chunk.split('\n');
+          // 使用缓冲机制处理分割的SSE数据
+          sseBuffer += chunk;
+
+          // 按双换行符分割SSE事件
+          const events = sseBuffer.split('\n\n');
+
+          // 保留最后一个可能不完整的事件
+          sseBuffer = events.pop() || '';
+          console.log(`[${reqId}] 处理${events.length}个完整事件，缓冲区剩余: ${sseBuffer.length}字符`);
+
+          // 处理完整的SSE事件
+          for (const event of events) {
+            if (!event.trim()) continue; // 跳过空事件
+
+            const lines = event.split('\n');
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const jsonStr = line.slice(6).trim();
@@ -481,7 +495,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
           }
         }
       } catch (streamError) {
-        console.error(`[${reqId}] ❌ 流式处理错误: ${streamError.message}`);
+        console.error(`[${reqId}] 流式处理错误: ${streamError.message}`);
         controller.error(streamError);
       }
     }
