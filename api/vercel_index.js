@@ -347,24 +347,49 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
     console.log(`[${reqId}] 响应因达到max_tokens限制而截断，思考token: ${geminiData.usageMetadata?.thoughtsTokenCount || 0}`);
   }
 
-  // 非流式响应
+  // 映射Gemini的finishReason到OpenAI格式
+  let finishReason = "stop";
+  if (candidate?.finishReason === "MAX_TOKENS") {
+    finishReason = "length";
+  } else if (candidate?.finishReason === "SAFETY") {
+    finishReason = "content_filter";
+  } else if (candidate?.finishReason === "RECITATION") {
+    finishReason = "content_filter";
+  }
+
+  // 完整的OpenAI非流式响应格式
   const openaiResponse = {
     id: `chatcmpl-${reqId}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
     model: openaiRequest.model, // 保持原始模型名
+    system_fingerprint: null, // OpenAI标准字段
     choices: [{
       index: 0,
       message: {
         role: "assistant",
-        content: geminiContent
+        content: geminiContent,
+        tool_calls: null, // 工具调用支持
+        function_call: null // 兼容旧版本
       },
-      finish_reason: "stop"
+      logprobs: null, // 日志概率
+      finish_reason: finishReason
     }],
     usage: {
       prompt_tokens: geminiData.usageMetadata?.promptTokenCount || 0,
       completion_tokens: geminiData.usageMetadata?.candidatesTokenCount || 0,
-      total_tokens: geminiData.usageMetadata?.totalTokenCount || 0
+      total_tokens: geminiData.usageMetadata?.totalTokenCount || 0,
+      // 添加详细的token使用信息
+      prompt_tokens_details: geminiData.usageMetadata?.promptTokensDetails ? {
+        cached_tokens: 0,
+        audio_tokens: 0
+      } : undefined,
+      completion_tokens_details: geminiData.usageMetadata?.candidatesTokenCount ? {
+        reasoning_tokens: geminiData.usageMetadata?.thoughtsTokenCount || 0,
+        audio_tokens: 0,
+        accepted_prediction_tokens: 0,
+        rejected_prediction_tokens: 0
+      } : undefined
     }
   };
 
