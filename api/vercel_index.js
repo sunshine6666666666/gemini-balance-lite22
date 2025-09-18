@@ -325,40 +325,62 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
 
 // SSE解析器类 - 正确处理流式数据缓冲
 class SSEParser {
-  constructor() {
+  constructor(reqId) {
     this.buffer = '';
+    this.reqId = reqId;
+    this.chunkCount = 0;
   }
 
   parse(chunk) {
+    this.chunkCount++;
+    console.log(`[${this.reqId}] 🔍 SSE解析器接收chunk ${this.chunkCount}，长度: ${chunk.length}`);
+    console.log(`[${this.reqId}] 🔍 原始chunk内容: ${JSON.stringify(chunk.substring(0, 200))}...`);
+
     this.buffer += chunk;
+    console.log(`[${this.reqId}] 🔍 缓冲区总长度: ${this.buffer.length}`);
+
     const events = [];
 
     // 按 \n\n 分割SSE事件
     const parts = this.buffer.split('\n\n');
+    console.log(`[${this.reqId}] 🔍 分割后得到${parts.length}个部分`);
 
     // 保留最后一个可能不完整的部分
     this.buffer = parts.pop() || '';
+    console.log(`[${this.reqId}] 🔍 保留缓冲区: ${JSON.stringify(this.buffer.substring(0, 100))}...`);
 
     // 处理完整的SSE事件
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      console.log(`[${this.reqId}] 🔍 处理SSE事件${i + 1}: ${JSON.stringify(part.substring(0, 100))}...`);
+
       const lines = part.split('\n');
+      console.log(`[${this.reqId}] 🔍 事件${i + 1}包含${lines.length}行`);
+
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const jsonStr = line.substring(6).trim();
+          console.log(`[${this.reqId}] 🔍 找到data行，JSON长度: ${jsonStr.length}`);
+          console.log(`[${this.reqId}] 🔍 JSON内容: ${jsonStr.substring(0, 200)}...`);
+
           if (jsonStr && jsonStr !== '[DONE]') {
             try {
               const data = JSON.parse(jsonStr);
+              console.log(`[${this.reqId}] ✅ JSON解析成功，数据结构: ${JSON.stringify(Object.keys(data))}`);
               events.push(data);
             } catch (e) {
-              console.warn(`JSON解析失败: ${e.message}, 数据: ${jsonStr.substring(0, 100)}...`);
+              console.error(`[${this.reqId}] ❌ JSON解析失败: ${e.message}`);
+              console.error(`[${this.reqId}] ❌ 失败的JSON: ${jsonStr.substring(0, 200)}...`);
             }
           } else if (jsonStr === '[DONE]') {
+            console.log(`[${this.reqId}] 🏁 收到结束标记`);
             events.push({ isDone: true });
           }
         }
       }
     }
 
+    console.log(`[${this.reqId}] 🔍 本次解析得到${events.length}个事件`);
     return events;
   }
 }
@@ -393,7 +415,7 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
       async start(controller) {
         const reader = geminiResponse.body.getReader();
         const decoder = new TextDecoder();
-        const sseParser = new SSEParser();
+        const sseParser = new SSEParser(reqId);
         let chunkCount = 0;
         let accumulatedContent = '';
 
@@ -429,19 +451,46 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
 
             // 使用SSE解析器处理数据块 - 修复JSON分割问题
             const events = sseParser.parse(chunk);
+            console.log(`[${reqId}] 📊 SSE解析器返回${events.length}个事件`);
 
-            for (const event of events) {
+            for (let i = 0; i < events.length; i++) {
+              const event = events[i];
+              console.log(`[${reqId}] 🔍 处理事件${i + 1}/${events.length}`);
+              console.log(`[${reqId}] 🔍 事件结构: ${JSON.stringify(Object.keys(event))}`);
+              console.log(`[${reqId}] 🔍 完整事件: ${JSON.stringify(event, null, 2).substring(0, 500)}...`);
+
               if (event.isDone) {
-                console.log(`[${reqId}] 收到Gemini结束事件`);
+                console.log(`[${reqId}] 🏁 收到Gemini结束事件`);
                 continue;
+              }
+
+              // 详细检查事件结构
+              console.log(`[${reqId}] 🔍 检查candidates: ${event.candidates ? '存在' : '不存在'}`);
+              if (event.candidates) {
+                console.log(`[${reqId}] 🔍 candidates数量: ${event.candidates.length}`);
+                if (event.candidates[0]) {
+                  console.log(`[${reqId}] 🔍 第一个candidate完整结构: ${JSON.stringify(event.candidates[0], null, 2)}`);
+                  console.log(`[${reqId}] 🔍 第一个candidate字段: ${JSON.stringify(Object.keys(event.candidates[0]))}`);
+                  if (event.candidates[0].content) {
+                    console.log(`[${reqId}] 🔍 content完整结构: ${JSON.stringify(event.candidates[0].content, null, 2)}`);
+                    console.log(`[${reqId}] 🔍 content字段: ${JSON.stringify(Object.keys(event.candidates[0].content))}`);
+                    if (event.candidates[0].content.parts) {
+                      console.log(`[${reqId}] 🔍 parts数量: ${event.candidates[0].content.parts.length}`);
+                      console.log(`[${reqId}] 🔍 parts完整结构: ${JSON.stringify(event.candidates[0].content.parts, null, 2)}`);
+                    }
+                  }
+                }
               }
 
               // 提取文本内容
               const text = event.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              console.log(`[${reqId}] 🔍 提取的文本长度: ${text.length}`);
+              console.log(`[${reqId}] 🔍 提取的文本内容: "${text.substring(0, 100)}..."`);
 
               if (text) {
                 accumulatedContent += text;
-                console.log(`[${reqId}] 提取到文本: "${text}"`);
+                console.log(`[${reqId}] ✅ 提取到文本: "${text}"`);
+                console.log(`[${reqId}] 📝 累积内容长度: ${accumulatedContent.length}`);
 
                 // 转换为OpenAI格式
                 const openaiChunk = {
@@ -456,12 +505,17 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
                   }]
                 };
 
-                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(openaiChunk)}\n\n`));
+                console.log(`[${reqId}] 🔄 转换为OpenAI格式: ${JSON.stringify(openaiChunk)}`);
+                const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
+                console.log(`[${reqId}] 📤 发送SSE数据长度: ${sseData.length}`);
+                controller.enqueue(new TextEncoder().encode(sseData));
+              } else {
+                console.log(`[${reqId}] ⚠️ 事件中没有提取到文本内容`);
               }
 
               // 检查是否有完成标记
               if (event.candidates?.[0]?.finishReason) {
-                console.log(`[${reqId}] Gemini完成原因: ${event.candidates[0].finishReason}`);
+                console.log(`[${reqId}] 🏁 Gemini完成原因: ${event.candidates[0].finishReason}`);
               }
             }
           }
