@@ -133,6 +133,37 @@ async function handleChatCompletions(request, reqId) {
     // 转换为Gemini格式 - 正确处理角色映射和复杂content格式
     console.log(`[${reqId}] 开始消息格式转换，共${openaiRequest.messages.length}条消息`);
 
+    // 智能计算默认token数量
+    const calculateDefaultTokens = (messages) => {
+      const totalLength = messages.reduce((sum, msg) => {
+        if (typeof msg.content === 'string') {
+          return sum + msg.content.length;
+        } else if (Array.isArray(msg.content)) {
+          return sum + msg.content.reduce((contentSum, item) =>
+            contentSum + (item.text ? item.text.length : 0), 0);
+        } else {
+          return sum + JSON.stringify(msg.content).length;
+        }
+      }, 0);
+
+      console.log(`[${reqId}] 消息总长度: ${totalLength} 字符`);
+
+      // 根据内容长度和复杂度动态调整token限制
+      if (totalLength > 8000) {
+        console.log(`[${reqId}] 复杂请求，设置token限制: 8192`);
+        return 8192;  // 非常复杂的请求
+      } else if (totalLength > 5000) {
+        console.log(`[${reqId}] 中等复杂请求，设置token限制: 7000`);
+        return 7000;  // 复杂请求
+      } else if (totalLength > 2000) {
+        console.log(`[${reqId}] 标准请求，设置token限制: 7000`);
+        return 7000;  // 标准请求（用户要求的默认值）
+      } else {
+        console.log(`[${reqId}] 简单请求，设置token限制: 7000`);
+        return 7000;  // 简单请求也使用7000（用户要求的默认值）
+      }
+    };
+
     const geminiRequest = {
       contents: openaiRequest.messages.map((msg, index) => {
         let role;
@@ -182,7 +213,7 @@ async function handleChatCompletions(request, reqId) {
       }),
       generationConfig: {
         temperature: openaiRequest.temperature || 0.7,
-        maxOutputTokens: openaiRequest.max_tokens || 2048, // 增加默认token限制
+        maxOutputTokens: openaiRequest.max_tokens || calculateDefaultTokens(openaiRequest.messages),
         topP: openaiRequest.top_p || 1.0
       }
     };
