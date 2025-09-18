@@ -109,6 +109,10 @@ async function handleChatCompletions(request, reqId) {
     const openaiRequest = await request.json();
     console.log(`[${reqId}] OpenAI请求: ${JSON.stringify(openaiRequest, null, 2)}`);
 
+    // 检查是否为流式请求
+    const isStreaming = openaiRequest.stream === true;
+    console.log(`[${reqId}] 流式请求: ${isStreaming}`);
+
     // 扩展模型映射：所有非Gemini模型映射到gemini-2.5-flash-lite
     let model = openaiRequest.model;
     if (model.startsWith('gemini-')) {
@@ -153,20 +157,37 @@ async function handleChatCompletions(request, reqId) {
 
     console.log(`[${reqId}] Gemini请求: ${JSON.stringify(geminiRequest, null, 2)}`);
 
-    // 调用Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    // 根据是否流式请求选择不同的Gemini API端点
+    let geminiUrl;
+    if (isStreaming) {
+      geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+      console.log(`[${reqId}] 使用流式端点: streamGenerateContent`);
+    } else {
+      geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      console.log(`[${reqId}] 使用非流式端点: generateContent`);
+    }
+
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest)
     });
 
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.json();
+      console.error(`[${reqId}] Gemini API错误: ${JSON.stringify(errorData, null, 2)}`);
+      throw new Error(`Gemini API错误: ${errorData.error?.message || 'Unknown error'}`);
+    }
+
+    // 处理流式响应
+    if (isStreaming) {
+      console.log(`[${reqId}] 开始处理OpenAI流式响应`);
+      return handleOpenAIStreamingResponse(geminiResponse, openaiRequest, reqId);
+    }
+
+    // 处理非流式响应
     const geminiData = await geminiResponse.json();
     console.log(`[${reqId}] Gemini响应: ${JSON.stringify(geminiData, null, 2)}`);
-
-    if (!geminiResponse.ok) {
-      throw new Error(`Gemini API错误: ${geminiData.error?.message || 'Unknown error'}`);
-    }
 
     // 提取内容
     const candidate = geminiData.candidates?.[0];
@@ -397,12 +418,119 @@ async function handleGeminiNativeRequest(request, reqId) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
   } catch (error) {
     console.error(`[${reqId}] Gemini原生API处理错误: ${error.message}`);
-    return new Response(`Gemini Native API Error: ${error.message}`, {
+    return new Response(JSON.stringify({
+      error: {
+        message: error.message,
+        type: "invalid_request_error"
+      }
+    }), {
       status: 500,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      headers: { 'Content-Type': 'application/json' }
     });
   }
+}
+
+// 处理OpenAI流式响应
+async function handleOpenAIStreamingResponse(geminiResponse, openaiRequest, reqId) {
+  const reader = geminiResponse.body.getReader();
+  const decoder = new TextDecoder();
+  let chunkCount = 0;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      function pump() {
+        return reader.read().then(({ done, value }) => {
+          if (done) {
+            console.log(`[${reqId}] OpenAI流式响应完成，总共处理 ${chunkCount} 个数据块`);
+
+            // 发送最终的完成标记
+            const finalChunk = {
+              id: `chatcmpl-${reqId}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: openaiRequest.model,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: "stop"
+              }]
+            };
+
+            const finalData = `data: ${JSON.stringify(finalChunk)}\n\n`;
+            controller.enqueue(new TextEncoder().encode(finalData));
+
+            // 发送结束标记
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
+            controller.close();
+            return;
+          }
+
+          chunkCount++;
+          const chunk = decoder.decode(value, { stream: true });
+          console.log(`[${reqId}] OpenAI流式数据块 ${chunkCount}:`);
+          console.log(`[${reqId}] 原始数据长度: ${chunk.length} 字符`);
+
+          // 解析Gemini SSE数据并转换为OpenAI格式
+          const lines = chunk.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line.startsWith('data: ')) {
+              const jsonData = line.substring(6); // 移除 "data: " 前缀
+              if (jsonData && jsonData !== '[DONE]') {
+                try {
+                  const geminiData = JSON.parse(jsonData);
+                  console.log(`[${reqId}] Gemini SSE数据:`, JSON.stringify(geminiData, null, 2));
+
+                  // 转换为OpenAI流式格式
+                  if (geminiData.candidates && geminiData.candidates[0]) {
+                    const candidate = geminiData.candidates[0];
+                    const content = candidate.content?.parts?.[0]?.text || "";
+
+                    const openaiChunk = {
+                      id: `chatcmpl-${reqId}`,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: openaiRequest.model,
+                      choices: [{
+                        index: 0,
+                        delta: {
+                          content: content
+                        },
+                        finish_reason: null
+                      }]
+                    };
+
+                    console.log(`[${reqId}] OpenAI流式块:`, JSON.stringify(openaiChunk, null, 2));
+
+                    const openaiData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
+                    controller.enqueue(new TextEncoder().encode(openaiData));
+                  }
+                } catch (e) {
+                  console.error(`[${reqId}] JSON解析失败: ${e.message}`);
+                  console.error(`[${reqId}] 原始数据: ${jsonData}`);
+                }
+              }
+            }
+          }
+
+          return pump();
+        });
+      }
+      return pump();
+    }
+  });
+
+  console.log(`[${reqId}] 返回OpenAI兼容的流式响应`);
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    }
+  });
 }
