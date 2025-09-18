@@ -323,233 +323,179 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
   });
 }
 
-// SSE解析器类 - 正确处理流式数据缓冲
-class SSEParser {
-  constructor(reqId) {
-    this.buffer = '';
-    this.reqId = reqId;
-    this.chunkCount = 0;
-  }
 
-  parse(chunk) {
-    this.chunkCount++;
-    console.log(`[${this.reqId}] 🔍 SSE解析器接收chunk ${this.chunkCount}，长度: ${chunk.length}`);
-    console.log(`[${this.reqId}] 🔍 原始chunk内容: ${JSON.stringify(chunk.substring(0, 200))}...`);
 
-    this.buffer += chunk;
-    console.log(`[${this.reqId}] 🔍 缓冲区总长度: ${this.buffer.length}`);
-
-    const events = [];
-
-    // 按 \n\n 分割SSE事件
-    const parts = this.buffer.split('\n\n');
-    console.log(`[${this.reqId}] 🔍 分割后得到${parts.length}个部分`);
-
-    // 保留最后一个可能不完整的部分
-    this.buffer = parts.pop() || '';
-    console.log(`[${this.reqId}] 🔍 保留缓冲区: ${JSON.stringify(this.buffer.substring(0, 100))}...`);
-
-    // 处理完整的SSE事件
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      console.log(`[${this.reqId}] 🔍 处理SSE事件${i + 1}: ${JSON.stringify(part.substring(0, 100))}...`);
-
-      const lines = part.split('\n');
-      console.log(`[${this.reqId}] 🔍 事件${i + 1}包含${lines.length}行`);
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.substring(6).trim();
-          console.log(`[${this.reqId}] 🔍 找到data行，JSON长度: ${jsonStr.length}`);
-          console.log(`[${this.reqId}] 🔍 JSON内容: ${jsonStr.substring(0, 200)}...`);
-
-          if (jsonStr && jsonStr !== '[DONE]') {
-            try {
-              const data = JSON.parse(jsonStr);
-              console.log(`[${this.reqId}] ✅ JSON解析成功，数据结构: ${JSON.stringify(Object.keys(data))}`);
-              events.push(data);
-            } catch (e) {
-              console.error(`[${this.reqId}] ❌ JSON解析失败: ${e.message}`);
-              console.error(`[${this.reqId}] ❌ 失败的JSON: ${jsonStr.substring(0, 200)}...`);
-            }
-          } else if (jsonStr === '[DONE]') {
-            console.log(`[${this.reqId}] 🏁 收到结束标记`);
-            events.push({ isDone: true });
-          }
-        }
-      }
-    }
-
-    console.log(`[${this.reqId}] 🔍 本次解析得到${events.length}个事件`);
-    return events;
-  }
-}
-
-// 处理真正的流式响应 - 使用负载均衡和正确的SSE解析
+// 处理真正的流式响应 - 使用负载均衡和API Key故障切换
 async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId) {
   console.log(`[${reqId}] 🌊 流式请求使用负载均衡，共${apiKeys.length}个API Key`);
 
-  // 选择API Key进行流式请求
-  const selectedApiKey = selectApiKeyBalanced(apiKeys);
-  logLoadBalance(reqId, selectedApiKey, apiKeys.length, "流式请求轮询");
+  // API Key重试机制
+  let lastError = null;
+  let attemptCount = 0;
+  const maxAttempts = Math.min(apiKeys.length, 3); // 最多尝试3个API Key
 
-  const geminiStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${selectedApiKey}`;
-  console.log(`[${reqId}] 🌐 Gemini流式请求URL: ${geminiStreamUrl}`);
-  console.log(`[${reqId}] 📤 Gemini流式请求体: ${JSON.stringify(geminiRequest, null, 2)}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    attemptCount++;
 
-  try {
-    const geminiResponse = await fetch(geminiStreamUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiRequest)
-    });
+    // 选择API Key进行流式请求
+    const selectedApiKey = selectApiKeyBalanced(apiKeys);
+    logLoadBalance(reqId, selectedApiKey, apiKeys.length, `流式请求尝试${attemptCount}`);
 
-    console.log(`[${reqId}] 📥 Gemini流式响应状态: ${geminiResponse.status}`);
-    console.log(`[${reqId}] 📥 Gemini流式响应头: ${JSON.stringify(Object.fromEntries(geminiResponse.headers.entries()))}`);
+    const geminiStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${selectedApiKey}`;
+    console.log(`[${reqId}] 🌐 尝试${attemptCount}: Gemini流式请求URL: ${geminiStreamUrl.replace(selectedApiKey, selectedApiKey.substring(0, 8) + '...')}`);
+    console.log(`[${reqId}] 📤 尝试${attemptCount}: Gemini流式请求体: ${JSON.stringify(geminiRequest, null, 2)}`);
 
-    if (!geminiResponse.ok) {
-      const errorData = await geminiResponse.text();
-      console.error(`[${reqId}] ❌ Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
-      throw new Error(`Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
+    try {
+      const geminiResponse = await fetch(geminiStreamUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiRequest)
+      });
+
+      console.log(`[${reqId}] 📥 尝试${attemptCount}: Gemini流式响应状态: ${geminiResponse.status}`);
+      console.log(`[${reqId}] 📥 尝试${attemptCount}: Gemini流式响应头: ${JSON.stringify(Object.fromEntries(geminiResponse.headers.entries()))}`);
+
+      // 检查是否需要重试（认证错误）
+      if (geminiResponse.status === 400 || geminiResponse.status === 401 || geminiResponse.status === 403) {
+        const errorData = await geminiResponse.text();
+        console.warn(`[${reqId}] ⚠️ 尝试${attemptCount}: API Key认证失败 (${geminiResponse.status}): ${errorData}`);
+        lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
+
+        if (attempt < maxAttempts - 1) {
+          console.log(`[${reqId}] 🔄 尝试${attemptCount}: 切换到下一个API Key...`);
+          continue; // 尝试下一个API Key
+        }
+      } else if (!geminiResponse.ok) {
+        // 其他错误直接抛出，不重试
+        const errorData = await geminiResponse.text();
+        console.error(`[${reqId}] ❌ 尝试${attemptCount}: Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
+        throw new Error(`Gemini流式API错误: ${geminiResponse.status} - ${errorData}`);
+      } else {
+        // 成功，处理流式响应
+        console.log(`[${reqId}] ✅ 尝试${attemptCount}: API Key验证成功，开始处理流式响应`);
+        return await processStreamingResponse(geminiResponse, openaiRequest, reqId);
+      }
+    } catch (error) {
+      console.error(`[${reqId}] ❌ 尝试${attemptCount}: 请求异常: ${error.message}`);
+      lastError = error;
+
+      if (attempt < maxAttempts - 1) {
+        console.log(`[${reqId}] 🔄 尝试${attemptCount}: 发生异常，切换到下一个API Key...`);
+        continue; // 尝试下一个API Key
+      }
     }
+  }
 
-    console.log(`[${reqId}] 🌊 Gemini流式响应开始，状态: ${geminiResponse.status}`);
+  // 所有API Key都失败了
+  console.error(`[${reqId}] 💥 所有${attemptCount}个API Key尝试都失败了`);
+  throw lastError || new Error('所有API Key都无法使用');
+}
 
-    // 创建转换流
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = geminiResponse.body.getReader();
-        const decoder = new TextDecoder();
-        const sseParser = new SSEParser(reqId);
-        let chunkCount = 0;
-        let accumulatedContent = '';
+// 处理流式响应的核心函数
+async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
+  console.log(`[${reqId}] 🌊 开始处理Gemini流式响应`);
 
-        console.log(`[${reqId}] 🔧 开始读取Gemini流式响应...`);
+  const stream = new ReadableStream({
+    async start(controller) {
+      const reader = geminiResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let chunkCount = 0;
+      let accumulatedContent = '';
 
-        try {
-          while (true) {
-            console.log(`[${reqId}] 🔄 等待读取数据块...`);
-            const { done, value } = await reader.read();
-            console.log(`[${reqId}] 📥 读取结果: done=${done}, value存在=${!!value}, value长度=${value ? value.length : 0}`);
+      console.log(`[${reqId}] 🔧 开始读取Gemini流式响应...`);
 
-            if (done) {
-              console.log(`[${reqId}] 🏁 Gemini流式响应完成，共处理${chunkCount}个数据块`);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
 
-              // 发送最终的完成块
-              const finalChunk = {
-                id: `chatcmpl-${reqId}`,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: openaiRequest.model,
-                choices: [{
-                  index: 0,
-                  delta: {},
-                  finish_reason: "stop"
-                }]
-              };
+          if (done) {
+            console.log(`[${reqId}] 🏁 Gemini流式响应完成，共处理${chunkCount}个数据块`);
 
-              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(finalChunk)}\n\n`));
-              controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
-              controller.close();
-              return;
-            }
+            // 发送最终的完成块
+            const finalChunk = {
+              id: `chatcmpl-${reqId}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: openaiRequest.model,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: "stop"
+              }]
+            };
 
-            chunkCount++;
-            const chunk = decoder.decode(value, { stream: true });
-            console.log(`[${reqId}] 📦 处理流式数据块 ${chunkCount}，长度: ${chunk.length}`);
-            console.log(`[${reqId}] 📦 数据块内容: ${JSON.stringify(chunk.substring(0, 300))}...`);
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(finalChunk)}\n\n`));
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
+            controller.close();
+            return;
+          }
 
-            // 使用SSE解析器处理数据块 - 修复JSON分割问题
-            const events = sseParser.parse(chunk);
-            console.log(`[${reqId}] 📊 SSE解析器返回${events.length}个事件`);
+          chunkCount++;
+          const chunk = decoder.decode(value, { stream: true });
+          console.log(`[${reqId}] 📦 处理流式数据块 ${chunkCount}，长度: ${chunk.length}`);
 
-            for (let i = 0; i < events.length; i++) {
-              const event = events[i];
-              console.log(`[${reqId}] 🔍 处理事件${i + 1}/${events.length}`);
-              console.log(`[${reqId}] 🔍 事件结构: ${JSON.stringify(Object.keys(event))}`);
-              console.log(`[${reqId}] 🔍 完整事件: ${JSON.stringify(event, null, 2).substring(0, 500)}...`);
+          // 直接解析SSE数据，不使用复杂的解析器
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const geminiData = JSON.parse(jsonStr);
+                  console.log(`[${reqId}] � 解析Gemini数据: ${JSON.stringify(geminiData, null, 2).substring(0, 300)}...`);
 
-              if (event.isDone) {
-                console.log(`[${reqId}] 🏁 收到Gemini结束事件`);
-                continue;
-              }
+                  // 提取文本内容
+                  const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-              // 详细检查事件结构
-              console.log(`[${reqId}] 🔍 检查candidates: ${event.candidates ? '存在' : '不存在'}`);
-              if (event.candidates) {
-                console.log(`[${reqId}] 🔍 candidates数量: ${event.candidates.length}`);
-                if (event.candidates[0]) {
-                  console.log(`[${reqId}] 🔍 第一个candidate完整结构: ${JSON.stringify(event.candidates[0], null, 2)}`);
-                  console.log(`[${reqId}] 🔍 第一个candidate字段: ${JSON.stringify(Object.keys(event.candidates[0]))}`);
-                  if (event.candidates[0].content) {
-                    console.log(`[${reqId}] 🔍 content完整结构: ${JSON.stringify(event.candidates[0].content, null, 2)}`);
-                    console.log(`[${reqId}] 🔍 content字段: ${JSON.stringify(Object.keys(event.candidates[0].content))}`);
-                    if (event.candidates[0].content.parts) {
-                      console.log(`[${reqId}] 🔍 parts数量: ${event.candidates[0].content.parts.length}`);
-                      console.log(`[${reqId}] 🔍 parts完整结构: ${JSON.stringify(event.candidates[0].content.parts, null, 2)}`);
-                    }
+                  if (text) {
+                    accumulatedContent += text;
+                    console.log(`[${reqId}] ✅ 提取到文本: "${text}"`);
+
+                    // 转换为OpenAI格式并立即发送
+                    const openaiChunk = {
+                      id: `chatcmpl-${reqId}`,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: openaiRequest.model,
+                      choices: [{
+                        index: 0,
+                        delta: { content: text },
+                        finish_reason: null
+                      }]
+                    };
+
+                    const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
+                    console.log(`[${reqId}] 📤 发送OpenAI SSE数据: ${sseData.substring(0, 200)}...`);
+                    controller.enqueue(new TextEncoder().encode(sseData));
                   }
+
+                  // 检查是否有完成标记
+                  if (geminiData.candidates?.[0]?.finishReason) {
+                    console.log(`[${reqId}] 🏁 Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
+                  }
+                } catch (parseError) {
+                  console.warn(`[${reqId}] ⚠️ JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
                 }
-              }
-
-              // 提取文本内容
-              const text = event.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              console.log(`[${reqId}] 🔍 提取的文本长度: ${text.length}`);
-              console.log(`[${reqId}] 🔍 提取的文本内容: "${text.substring(0, 100)}..."`);
-
-              if (text) {
-                accumulatedContent += text;
-                console.log(`[${reqId}] ✅ 提取到文本: "${text}"`);
-                console.log(`[${reqId}] 📝 累积内容长度: ${accumulatedContent.length}`);
-
-                // 转换为OpenAI格式
-                const openaiChunk = {
-                  id: `chatcmpl-${reqId}`,
-                  object: "chat.completion.chunk",
-                  created: Math.floor(Date.now() / 1000),
-                  model: openaiRequest.model,
-                  choices: [{
-                    index: 0,
-                    delta: { content: text },
-                    finish_reason: null
-                  }]
-                };
-
-                console.log(`[${reqId}] 🔄 转换为OpenAI格式: ${JSON.stringify(openaiChunk)}`);
-                const sseData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
-                console.log(`[${reqId}] 📤 发送SSE数据长度: ${sseData.length}`);
-                controller.enqueue(new TextEncoder().encode(sseData));
-              } else {
-                console.log(`[${reqId}] ⚠️ 事件中没有提取到文本内容`);
-              }
-
-              // 检查是否有完成标记
-              if (event.candidates?.[0]?.finishReason) {
-                console.log(`[${reqId}] 🏁 Gemini完成原因: ${event.candidates[0].finishReason}`);
               }
             }
           }
-        } catch (streamError) {
-          console.error(`[${reqId}] 流式处理错误: ${streamError.message}`);
-          controller.error(streamError);
         }
+      } catch (streamError) {
+        console.error(`[${reqId}] ❌ 流式处理错误: ${streamError.message}`);
+        controller.error(streamError);
       }
-    });
+    }
+  });
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-      }
-    });
-
-  } catch (error) {
-    console.error(`[${reqId}] 流式处理初始化错误: ${error.message}`);
-    throw error;
-  }
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    }
+  });
 }
 
 // 主处理函数
@@ -742,89 +688,3 @@ async function handleGeminiNativeRequest(request, reqId) {
   }
 }
 
-// 模拟OpenAI流式响应
-async function simulateOpenAIStreamingResponse(content, geminiData, openaiRequest, reqId) {
-  console.log(`[${reqId}] 开始模拟流式响应，内容长度: ${content.length} 字符`);
-
-  const stream = new ReadableStream({
-    start(controller) {
-      // 将内容分块，每块大约10-20个字符
-      const chunkSize = Math.max(10, Math.min(20, Math.floor(content.length / 10)));
-      const chunks = [];
-
-      for (let i = 0; i < content.length; i += chunkSize) {
-        chunks.push(content.substring(i, i + chunkSize));
-      }
-
-      console.log(`[${reqId}] 内容分为 ${chunks.length} 个块，每块约 ${chunkSize} 字符`);
-
-      let chunkIndex = 0;
-
-      function sendNextChunk() {
-        if (chunkIndex < chunks.length) {
-          const chunkContent = chunks[chunkIndex];
-
-          const openaiChunk = {
-            id: `chatcmpl-${reqId}`,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: openaiRequest.model,
-            choices: [{
-              index: 0,
-              delta: {
-                content: chunkContent
-              },
-              finish_reason: null
-            }]
-          };
-
-          const chunkData = `data: ${JSON.stringify(openaiChunk)}\n\n`;
-          controller.enqueue(new TextEncoder().encode(chunkData));
-
-          console.log(`[${reqId}] 发送块 ${chunkIndex + 1}/${chunks.length}: "${chunkContent.substring(0, 20)}${chunkContent.length > 20 ? '...' : ''}"`);
-
-          chunkIndex++;
-
-          // 添加小延迟模拟真实流式体验
-          setTimeout(sendNextChunk, 50);
-        } else {
-          // 发送完成标记
-          const finalChunk = {
-            id: `chatcmpl-${reqId}`,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: openaiRequest.model,
-            choices: [{
-              index: 0,
-              delta: {},
-              finish_reason: "stop"
-            }]
-          };
-
-          const finalData = `data: ${JSON.stringify(finalChunk)}\n\n`;
-          controller.enqueue(new TextEncoder().encode(finalData));
-
-          // 发送结束标记
-          controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
-
-          console.log(`[${reqId}] 流式响应完成`);
-          controller.close();
-        }
-      }
-
-      // 开始发送
-      sendNextChunk();
-    }
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
-  });
-}
