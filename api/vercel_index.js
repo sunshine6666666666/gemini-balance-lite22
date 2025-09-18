@@ -34,8 +34,11 @@ async function handleRequest(request) {
       });
     }
 
-    // 处理OpenAI兼容请求
-    if (url.pathname.startsWith('/v1/')) {
+    // 处理OpenAI兼容请求 (支持v1和简化路径)
+    if (url.pathname.startsWith('/v1/') ||
+        url.pathname === '/chat/completions' ||
+        url.pathname === '/models' ||
+        url.pathname === '/completions') {
       console.log(`[${reqId}] OpenAI兼容请求`);
       return handleOpenAIRequest(request, reqId);
     }
@@ -57,7 +60,20 @@ async function handleRequest(request) {
 async function handleOpenAIRequest(request, reqId) {
   const url = new URL(request.url);
 
-  if (url.pathname === '/v1/models') {
+  // 路径标准化：将简化路径转换为v1路径
+  let normalizedPath = url.pathname;
+  if (normalizedPath === '/models') {
+    normalizedPath = '/v1/models';
+    console.log(`[${reqId}] 路径标准化: /models -> /v1/models`);
+  } else if (normalizedPath === '/chat/completions') {
+    normalizedPath = '/v1/chat/completions';
+    console.log(`[${reqId}] 路径标准化: /chat/completions -> /v1/chat/completions`);
+  } else if (normalizedPath === '/completions') {
+    normalizedPath = '/v1/completions';
+    console.log(`[${reqId}] 路径标准化: /completions -> /v1/completions`);
+  }
+
+  if (normalizedPath === '/v1/models') {
     console.log(`[${reqId}] 模型列表请求`);
     return new Response(JSON.stringify({
       object: "list",
@@ -72,7 +88,7 @@ async function handleOpenAIRequest(request, reqId) {
     });
   }
 
-  if (url.pathname === '/v1/chat/completions') {
+  if (normalizedPath === '/v1/chat/completions') {
     console.log(`[${reqId}] 聊天完成请求`);
     return handleChatCompletions(request, reqId);
   }
