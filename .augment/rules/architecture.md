@@ -215,4 +215,39 @@ export function newUtilityFunction(param) {
 3. **关注错误堆栈**: 错误日志包含具体的堆栈信息
 4. **监控性能**: 注意总耗时和各步骤耗时
 
+## 🧪 测试架构
+
+### 测试文件目录结构
+```
+tests/
+├── local/          # 本地开发测试
+│   ├── basic/      # 基础功能测试
+│   ├── models/     # 模型测试
+│   └── stress/     # 压力测试
+├── preview/        # Preview环境测试
+│   ├── api/        # API功能测试
+│   ├── models/     # 模型映射测试
+│   └── integration/ # 集成测试
+└── README.md       # 测试文档
+```
+
+### 测试文件规范
+- **本地测试**: 放在 `tests/local/` 目录下，用于开发调试
+- **Preview测试**: 放在 `tests/preview/` 目录下，用于真实环境验证
+- **命名规范**: `test-{功能}-{环境}.ps1` 或 `{功能}-test.js`
+- **敏感数据**: 测试文件包含API Key等敏感信息，已在.gitignore中排除
+
+### 文档目录结构
+```
+docs/
+├── api/           # API文档
+├── deployment/    # 部署文档
+├── development/   # 开发文档
+└── README.md      # 文档索引
+```
+
+**重要**: `tests/` 和 `docs/` 目录已在.gitignore中排除，避免敏感信息泄露到开源仓库。
+
+---
+
 这个架构设计的核心思想是：**简单、清晰、高效**。每个文件都有明确的职责，新手可以快速理解和参与开发。

@@ -140,3 +140,7 @@ tests/*/secrets.*
 # API documentation with sensitive info
 docs/api-keys.md
 docs/secrets.md
+
+# Test files and documentation (contains sensitive data)
+tests/
+docs/
