@@ -277,7 +277,14 @@ async function handleGeminiNativeRequest(request, reqId) {
     console.log(`[${reqId}] Gemini原生请求体: ${JSON.stringify(requestBody, null, 2)}`);
 
     // 构建Gemini API URL
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:${action}`;
+    let geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:${action}`;
+
+    // 为流式请求添加alt=sse参数
+    if (action === 'streamGenerateContent') {
+      geminiUrl += '?alt=sse';
+      console.log(`[${reqId}] 添加SSE参数用于流式响应`);
+    }
+
     console.log(`[${reqId}] 转发到Gemini API: ${geminiUrl}`);
 
     // 转发请求到Gemini API
@@ -303,13 +310,15 @@ async function handleGeminiNativeRequest(request, reqId) {
 
     // 处理流式响应
     if (action === 'streamGenerateContent') {
-      console.log(`[${reqId}] 返回流式响应`);
+      console.log(`[${reqId}] 返回SSE流式响应`);
       return new Response(geminiResponse.body, {
         status: 200,
         headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-goog-api-key'
         }
       });
     } else {
