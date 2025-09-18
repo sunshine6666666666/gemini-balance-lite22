@@ -130,9 +130,11 @@ async function handleChatCompletions(request, reqId) {
     }
     const apiKey = authHeader.substring(7);
 
-    // 转换为Gemini格式 - 正确处理角色映射
+    // 转换为Gemini格式 - 正确处理角色映射和复杂content格式
+    console.log(`[${reqId}] 开始消息格式转换，共${openaiRequest.messages.length}条消息`);
+
     const geminiRequest = {
-      contents: openaiRequest.messages.map(msg => {
+      contents: openaiRequest.messages.map((msg, index) => {
         let role;
         if (msg.role === 'assistant') {
           role = 'model';
@@ -143,14 +145,44 @@ async function handleChatCompletions(request, reqId) {
           role = msg.role; // user角色保持不变
         }
 
+        // 处理复杂的content格式，确保透明转发所有信息
+        let textContent;
+        if (typeof msg.content === 'string') {
+          // 简单字符串格式
+          textContent = msg.content;
+          console.log(`[${reqId}] 消息${index}: 字符串格式，长度${textContent.length}`);
+        } else if (Array.isArray(msg.content)) {
+          // 复杂数组格式 - 提取所有text内容并保持完整性
+          console.log(`[${reqId}] 消息${index}: 数组格式，包含${msg.content.length}个元素`);
+          textContent = msg.content
+            .filter(item => item && item.type === 'text' && item.text)
+            .map(item => item.text)
+            .join('\n'); // 使用换行符连接，保持内容结构
+          console.log(`[${reqId}] 消息${index}: 提取文本长度${textContent.length}`);
+        } else if (msg.content && typeof msg.content === 'object') {
+          // 对象格式转为字符串
+          textContent = JSON.stringify(msg.content);
+          console.log(`[${reqId}] 消息${index}: 对象格式，转换为JSON字符串`);
+        } else {
+          // 其他格式转为字符串
+          textContent = String(msg.content || '');
+          console.log(`[${reqId}] 消息${index}: 其他格式，转换为字符串`);
+        }
+
+        // 验证转换结果
+        if (!textContent) {
+          console.warn(`[${reqId}] 消息${index}: 内容为空，使用默认文本`);
+          textContent = '[Empty message]';
+        }
+
         return {
           role: role,
-          parts: [{ text: msg.content }]
+          parts: [{ text: textContent }]
         };
       }),
       generationConfig: {
         temperature: openaiRequest.temperature || 0.7,
-        maxOutputTokens: openaiRequest.max_tokens || 1024,
+        maxOutputTokens: openaiRequest.max_tokens || 2048, // 增加默认token限制
         topP: openaiRequest.top_p || 1.0
       }
     };
@@ -179,14 +211,16 @@ async function handleChatCompletions(request, reqId) {
 
     // 提取内容
     const candidate = geminiData.candidates?.[0];
-    const geminiContent = candidate?.content?.parts?.[0]?.text;
+    const geminiContent = candidate?.content?.parts?.[0]?.text || '';
 
-    if (!geminiContent) {
-      if (candidate?.finishReason === "MAX_TOKENS") {
-        throw new Error(`响应被截断：max_tokens过小，Gemini使用了${geminiData.usageMetadata?.thoughtsTokenCount || 0}个思考token`);
-      } else {
-        throw new Error(`Gemini API未返回文本内容，finishReason: ${candidate?.finishReason || 'unknown'}`);
-      }
+    // 处理各种完成原因
+    if (!geminiContent && candidate?.finishReason !== "MAX_TOKENS") {
+      throw new Error(`Gemini API未返回文本内容，finishReason: ${candidate?.finishReason || 'unknown'}`);
+    }
+
+    // 记录完成原因（包括MAX_TOKENS）
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      console.log(`[${reqId}] 响应因达到max_tokens限制而截断，思考token: ${geminiData.usageMetadata?.thoughtsTokenCount || 0}`);
     }
 
     // 根据请求类型返回不同格式
