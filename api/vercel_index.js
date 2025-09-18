@@ -43,6 +43,13 @@ async function handleRequest(request) {
       return handleOpenAIRequest(request, reqId);
     }
 
+    // 处理Gemini原生API请求 (支持v1beta路径)
+    if (url.pathname.startsWith('/v1beta/models/') &&
+        (url.pathname.includes(':generateContent') || url.pathname.includes(':streamGenerateContent'))) {
+      console.log(`[${reqId}] Gemini原生API请求`);
+      return handleGeminiNativeRequest(request, reqId);
+    }
+
     // 其他请求
     console.log(`[${reqId}] 未知请求`);
     return new Response('Not Found', { status: 404 });
@@ -232,4 +239,95 @@ export default async function handler(req) {
 
   console.log(`✅ 处理API请求: ${req.method} ${url.pathname}`);
   return handleRequest(req);
+}
+
+// 处理Gemini原生API请求
+async function handleGeminiNativeRequest(request, reqId) {
+  const url = new URL(request.url);
+
+  console.log(`[${reqId}] 处理Gemini原生API: ${url.pathname}`);
+
+  try {
+    // 提取模型名称
+    const pathMatch = url.pathname.match(/\/v1beta\/models\/([^:]+):(.+)/);
+    if (!pathMatch) {
+      console.log(`[${reqId}] 无效的Gemini API路径格式`);
+      return new Response('Invalid Gemini API path format', { status: 400 });
+    }
+
+    const [, modelName, action] = pathMatch;
+    console.log(`[${reqId}] 模型: ${modelName}, 操作: ${action}`);
+
+    // 获取API Key
+    const authHeader = request.headers.get('Authorization');
+    const apiKeyHeader = request.headers.get('x-goog-api-key');
+
+    let apiKey;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      apiKey = authHeader.substring(7);
+    } else if (apiKeyHeader) {
+      apiKey = apiKeyHeader;
+    } else {
+      console.log(`[${reqId}] 缺少API Key`);
+      return new Response('Missing API key', { status: 401 });
+    }
+
+    // 获取请求体
+    const requestBody = await request.json();
+    console.log(`[${reqId}] Gemini原生请求体: ${JSON.stringify(requestBody, null, 2)}`);
+
+    // 构建Gemini API URL
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:${action}`;
+    console.log(`[${reqId}] 转发到Gemini API: ${geminiUrl}`);
+
+    // 转发请求到Gemini API
+    const geminiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    console.log(`[${reqId}] Gemini API响应状态: ${geminiResponse.status}`);
+
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      console.log(`[${reqId}] Gemini API错误: ${errorText}`);
+      return new Response(errorText, {
+        status: geminiResponse.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // 处理流式响应
+    if (action === 'streamGenerateContent') {
+      console.log(`[${reqId}] 返回流式响应`);
+      return new Response(geminiResponse.body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        }
+      });
+    } else {
+      // 处理普通响应
+      const responseData = await geminiResponse.json();
+      console.log(`[${reqId}] Gemini API响应: ${JSON.stringify(responseData, null, 2)}`);
+
+      return new Response(JSON.stringify(responseData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+  } catch (error) {
+    console.error(`[${reqId}] Gemini原生API处理错误: ${error.message}`);
+    return new Response(`Gemini Native API Error: ${error.message}`, {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+  }
 }
