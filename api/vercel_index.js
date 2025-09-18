@@ -310,8 +310,74 @@ async function handleGeminiNativeRequest(request, reqId) {
 
     // 处理流式响应
     if (action === 'streamGenerateContent') {
-      console.log(`[${reqId}] 返回SSE流式响应`);
-      return new Response(geminiResponse.body, {
+      console.log(`[${reqId}] 开始处理SSE流式响应`);
+
+      // 创建一个可读流来拦截和记录流式数据
+      const reader = geminiResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let chunkCount = 0;
+
+      const stream = new ReadableStream({
+        start(controller) {
+          function pump() {
+            return reader.read().then(({ done, value }) => {
+              if (done) {
+                console.log(`[${reqId}] 流式响应完成，总共处理 ${chunkCount} 个数据块`);
+                controller.close();
+                return;
+              }
+
+              chunkCount++;
+              const chunk = decoder.decode(value, { stream: true });
+              console.log(`[${reqId}] 流式数据块 ${chunkCount}:`);
+              console.log(`[${reqId}] 原始数据长度: ${chunk.length} 字符`);
+
+              // 解析并美化显示SSE数据
+              const lines = chunk.split('\n');
+              for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith('data: ')) {
+                  const jsonData = line.substring(6); // 移除 "data: " 前缀
+                  if (jsonData && jsonData !== '[DONE]') {
+                    try {
+                      const parsed = JSON.parse(jsonData);
+                      console.log(`[${reqId}] SSE数据块 ${chunkCount} JSON内容:`);
+                      console.log(JSON.stringify(parsed, null, 2));
+
+                      // 提取关键信息
+                      if (parsed.candidates && parsed.candidates[0]) {
+                        const candidate = parsed.candidates[0];
+                        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+                          const text = candidate.content.parts[0].text;
+                          console.log(`[${reqId}] 生成文本: "${text}"`);
+                        }
+                        if (candidate.finishReason) {
+                          console.log(`[${reqId}] 完成原因: ${candidate.finishReason}`);
+                        }
+                      }
+                      if (parsed.usageMetadata) {
+                        console.log(`[${reqId}] Token使用: prompt=${parsed.usageMetadata.promptTokenCount}, candidates=${parsed.usageMetadata.candidatesTokenCount}, total=${parsed.usageMetadata.totalTokenCount}`);
+                      }
+                    } catch (e) {
+                      console.log(`[${reqId}] JSON解析失败: ${e.message}`);
+                      console.log(`[${reqId}] 原始数据: ${jsonData}`);
+                    }
+                  }
+                } else if (line) {
+                  console.log(`[${reqId}] SSE其他行: ${line}`);
+                }
+              }
+
+              controller.enqueue(value);
+              return pump();
+            });
+          }
+          return pump();
+        }
+      });
+
+      console.log(`[${reqId}] 返回增强日志的SSE流式响应`);
+      return new Response(stream, {
         status: 200,
         headers: {
           'Content-Type': 'text/event-stream',
