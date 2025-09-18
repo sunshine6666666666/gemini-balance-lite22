@@ -329,10 +329,10 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
 async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId) {
   console.log(`[${reqId}] 🌊 流式请求使用负载均衡，共${apiKeys.length}个API Key`);
 
-  // API Key重试机制
+  // API Key重试机制 - 修复：尝试所有可用的API Key
   let lastError = null;
   let attemptCount = 0;
-  const maxAttempts = Math.min(apiKeys.length, 3); // 最多尝试3个API Key
+  const maxAttempts = apiKeys.length; // 尝试所有可用的API Key
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     attemptCount++;
@@ -412,15 +412,17 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
           if (done) {
             console.log(`[${reqId}] 🏁 Gemini流式响应完成，共处理${chunkCount}个数据块`);
 
-            // 发送最终的完成块
+            // 发送标准OpenAI格式的完成块
             const finalChunk = {
               id: `chatcmpl-${reqId}`,
               object: "chat.completion.chunk",
               created: Math.floor(Date.now() / 1000),
               model: openaiRequest.model,
+              system_fingerprint: null,
               choices: [{
                 index: 0,
                 delta: {},
+                logprobs: null,
                 finish_reason: "stop"
               }]
             };
@@ -464,15 +466,17 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                     if (text) {
                       console.log(`[${reqId}] 提取到文本: "${text}"`);
 
-                      // 转换为OpenAI格式并立即发送
+                      // 转换为标准OpenAI流式格式
                       const openaiChunk = {
                         id: `chatcmpl-${reqId}`,
                         object: "chat.completion.chunk",
                         created: Math.floor(Date.now() / 1000),
                         model: openaiRequest.model,
+                        system_fingerprint: null,
                         choices: [{
                           index: 0,
                           delta: { content: text },
+                          logprobs: null,
                           finish_reason: null
                         }]
                       };
