@@ -577,7 +577,35 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
 
                   // 检查是否有完成标记
                   if (geminiData.candidates?.[0]?.finishReason) {
-                    console.log(`[${reqId}] Gemini完成原因: ${geminiData.candidates[0].finishReason}`);
+                    const finishReason = geminiData.candidates[0].finishReason;
+                    console.log(`[${reqId}] Gemini完成原因: ${finishReason}`);
+
+                    // 🔥 发送最终完成块（空delta，带finish_reason）
+                    const finalChunk = {
+                      id: `chatcmpl-${reqId}`,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: openaiRequest.model,
+                      system_fingerprint: null,
+                      choices: [{
+                        index: 0,
+                        delta: {},
+                        logprobs: null,
+                        finish_reason: finishReason.toLowerCase()
+                      }]
+                    };
+
+                    const finalSseData = `data: ${JSON.stringify(finalChunk)}\n\n`;
+                    controller.enqueue(new TextEncoder().encode(finalSseData));
+                    console.log(`[${reqId}] 🏁 发送最终完成块: finish_reason=${finishReason}`);
+
+                    // 🔥 发送[DONE]标记
+                    controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
+                    console.log(`[${reqId}] 🏁 发送[DONE]标记`);
+
+                    // 🔥 关闭流
+                    controller.close();
+                    return;
                   }
                 } catch (parseError) {
                   console.warn(`[${reqId}] JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
