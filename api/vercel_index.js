@@ -649,7 +649,13 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                           object: "chat.completion.chunk",
                           created: Math.floor(Date.now() / 1000),
                           model: getCursorCompatibleModelName(openaiRequest.model),
-                          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+                          system_fingerprint: null,
+                          choices: [{
+                            index: 0,
+                            delta: {},
+                            logprobs: null,
+                            finish_reason: "stop"
+                          }]
                         };
                         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(emergencyChunk)}\n\n`));
                         controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
