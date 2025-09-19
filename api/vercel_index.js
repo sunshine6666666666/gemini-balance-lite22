@@ -577,35 +577,81 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
 
                   // 检查是否有完成标记
                   if (geminiData.candidates?.[0]?.finishReason) {
-                    const finishReason = geminiData.candidates[0].finishReason;
-                    console.log(`[${reqId}] Gemini完成原因: ${finishReason}`);
+                    console.log(`[${reqId}] 🎯 检测到finishReason，开始流式响应结束处理`);
 
-                    // 🔥 发送最终完成块（空delta，带finish_reason）
-                    const finalChunk = {
-                      id: `chatcmpl-${reqId}`,
-                      object: "chat.completion.chunk",
-                      created: Math.floor(Date.now() / 1000),
-                      model: openaiRequest.model,
-                      system_fingerprint: null,
-                      choices: [{
-                        index: 0,
-                        delta: {},
-                        logprobs: null,
-                        finish_reason: finishReason ? finishReason.toLowerCase() : "stop"
-                      }]
-                    };
+                    try {
+                      const finishReason = geminiData.candidates[0].finishReason;
+                      console.log(`[${reqId}] 📋 原始finishReason值: "${finishReason}" (类型: ${typeof finishReason})`);
 
-                    const finalSseData = `data: ${JSON.stringify(finalChunk)}\n\n`;
-                    controller.enqueue(new TextEncoder().encode(finalSseData));
-                    console.log(`[${reqId}] 🏁 发送最终完成块: finish_reason=${finishReason || 'stop'}`);
+                      // 安全的finishReason处理
+                      let safeFinishReason = "stop"; // 默认值
+                      if (finishReason && typeof finishReason === 'string') {
+                        safeFinishReason = finishReason.toLowerCase();
+                        console.log(`[${reqId}] ✅ finishReason转换成功: "${finishReason}" -> "${safeFinishReason}"`);
+                      } else {
+                        console.warn(`[${reqId}] ⚠️ finishReason异常，使用默认值: ${finishReason} -> "stop"`);
+                      }
 
-                    // 🔥 发送[DONE]标记
-                    controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
-                    console.log(`[${reqId}] 🏁 发送[DONE]标记`);
+                      console.log(`[${reqId}] 🔧 开始构建最终完成块...`);
 
-                    // 🔥 关闭流
-                    controller.close();
-                    return;
+                      // 🔥 发送最终完成块（空delta，带finish_reason）
+                      const finalChunk = {
+                        id: `chatcmpl-${reqId}`,
+                        object: "chat.completion.chunk",
+                        created: Math.floor(Date.now() / 1000),
+                        model: openaiRequest.model,
+                        system_fingerprint: null,
+                        choices: [{
+                          index: 0,
+                          delta: {},
+                          logprobs: null,
+                          finish_reason: safeFinishReason
+                        }]
+                      };
+
+                      console.log(`[${reqId}] 📤 最终完成块内容: ${JSON.stringify(finalChunk, null, 2)}`);
+
+                      const finalSseData = `data: ${JSON.stringify(finalChunk)}\n\n`;
+                      controller.enqueue(new TextEncoder().encode(finalSseData));
+                      console.log(`[${reqId}] 🏁 ✅ 最终完成块发送成功: finish_reason="${safeFinishReason}"`);
+
+                      // 🔥 发送[DONE]标记
+                      console.log(`[${reqId}] 🔧 准备发送[DONE]标记...`);
+                      controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
+                      console.log(`[${reqId}] 🏁 ✅ [DONE]标记发送成功`);
+
+                      // 🔥 关闭流
+                      console.log(`[${reqId}] 🔧 准备关闭SSE流...`);
+                      controller.close();
+                      console.log(`[${reqId}] 🏁 ✅ SSE流关闭成功，流式响应完成`);
+
+                      return;
+
+                    } catch (finishError) {
+                      console.error(`[${reqId}] ❌ 处理finishReason时发生错误: ${finishError.message}`);
+                      console.error(`[${reqId}] ❌ 错误堆栈: ${finishError.stack}`);
+                      console.log(`[${reqId}] 🔧 尝试安全关闭流...`);
+
+                      try {
+                        // 发送默认的完成块
+                        const emergencyChunk = {
+                          id: `chatcmpl-${reqId}`,
+                          object: "chat.completion.chunk",
+                          created: Math.floor(Date.now() / 1000),
+                          model: openaiRequest.model,
+                          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+                        };
+                        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(emergencyChunk)}\n\n`));
+                        controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
+                        console.log(`[${reqId}] 🆘 紧急完成块发送成功`);
+                      } catch (emergencyError) {
+                        console.error(`[${reqId}] ❌ 紧急处理也失败: ${emergencyError.message}`);
+                      }
+
+                      controller.close();
+                      console.log(`[${reqId}] 🆘 流已安全关闭`);
+                      return;
+                    }
                   }
                 } catch (parseError) {
                   console.warn(`[${reqId}] JSON解析失败: ${parseError.message}, 数据: ${jsonStr.substring(0, 100)}...`);
