@@ -678,25 +678,76 @@ async function handleGeminiNativeRequest(request, reqId) {
 
     console.log(`[${reqId}] 转发到Gemini API: ${geminiUrl}`);
 
-    // 转发请求到Gemini API - 使用负载均衡选中的API Key
-    const geminiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': selectedApiKey
-      },
-      body: JSON.stringify(requestBody)
-    });
+    // API Key重试机制 - 尝试所有可用的API Key
+    let lastError = null;
+    let attemptCount = 0;
+    const maxAttempts = apiKeys.length; // 尝试所有可用的API Key
+    let geminiResponse = null;
 
-    console.log(`[${reqId}] Gemini API响应状态: ${geminiResponse.status}`);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      attemptCount++;
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.log(`[${reqId}] Gemini API错误: ${errorText}`);
-      return new Response(errorText, {
-        status: geminiResponse.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      // 轮询选择API Key
+      const currentApiKey = apiKeys[attempt % apiKeys.length];
+      console.log(`[${reqId}] 🔄 Gemini原生尝试${attemptCount}/${maxAttempts}: 使用API Key ${currentApiKey.substring(0, 8)}...`);
+
+      try {
+        geminiResponse = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': currentApiKey
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        console.log(`[${reqId}] 📥 Gemini原生尝试${attemptCount}: 响应状态 ${geminiResponse.status}`);
+
+        // 检查是否需要重试（认证错误）
+        if (geminiResponse.status === 400 || geminiResponse.status === 401 || geminiResponse.status === 403) {
+          const errorData = await geminiResponse.text();
+          console.warn(`[${reqId}] ⚠️ Gemini原生尝试${attemptCount}: API Key认证失败 (${geminiResponse.status}): ${errorData}`);
+          lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
+
+          if (attempt < maxAttempts - 1) {
+            console.log(`[${reqId}] 🔄 Gemini原生: 切换到下一个API Key...`);
+            continue; // 尝试下一个API Key
+          }
+        } else if (!geminiResponse.ok) {
+          // 其他错误直接抛出，不重试
+          const errorData = await geminiResponse.text();
+          console.error(`[${reqId}] ❌ Gemini原生尝试${attemptCount}: 其他错误 (${geminiResponse.status}): ${errorData}`);
+          throw new Error(`Gemini API错误: ${geminiResponse.status} - ${errorData}`);
+        } else {
+          // 成功，继续处理
+          console.log(`[${reqId}] ✅ Gemini原生尝试${attemptCount}: API Key验证成功`);
+          break;
+        }
+      } catch (error) {
+        console.error(`[${reqId}] ❌ Gemini原生尝试${attemptCount}: 请求异常: ${error.message}`);
+        lastError = error;
+
+        if (attempt < maxAttempts - 1) {
+          console.log(`[${reqId}] 🔄 Gemini原生: 发生异常，切换到下一个API Key...`);
+          continue; // 尝试下一个API Key
+        }
+      }
+    }
+
+    // 所有API Key都失败了
+    if (!geminiResponse || !geminiResponse.ok) {
+      console.error(`[${reqId}] 💥 Gemini原生: 所有${attemptCount}个API Key尝试都失败了`);
+      if (lastError) {
+        return new Response(JSON.stringify({
+          error: {
+            message: lastError.message,
+            type: "api_key_error"
+          }
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     // 处理流式响应
