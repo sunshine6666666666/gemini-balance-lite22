@@ -112,15 +112,6 @@ async function handleOpenAIRequest(request, reqId) {
   return new Response('Not Found', { status: 404 });
 }
 
-// 获取Cursor兼容的模型名称
-function getCursorCompatibleModelName(originalModel) {
-  // Cursor IDE只认识OpenAI标准模型名，将Gemini模型映射为gpt-4
-  if (originalModel && typeof originalModel === 'string' && originalModel.startsWith('gemini-')) {
-    console.log(`[getCursorCompatibleModelName] 模型名映射: ${originalModel} -> gpt-4 (Cursor兼容)`);
-    return 'gpt-4';
-  }
-  return originalModel; // 保持OpenAI模型名不变
-}
 
 // 处理聊天完成请求
 async function handleChatCompletions(request, reqId) {
@@ -151,9 +142,13 @@ async function handleChatCompletions(request, reqId) {
       }
     }
 
-    // 扩展模型映射：所有非Gemini模型映射到gemini-2.5-flash-lite
+    // 扩展模型映射：透明代理 + Cursor兼容性特殊处理
     let model = openaiRequest.model || 'gpt-3.5-turbo'; // 提供默认值，防止null错误
-    if (model && typeof model === 'string' && model.startsWith('gemini-')) {
+
+    if (model === 'gpt-4o') {
+      console.log(`[${reqId}] 🎯 Cursor兼容映射: gpt-4o -> gemini-2.5-flash`);
+      model = 'gemini-2.5-flash';  // 为Cursor提供强大的flash模型
+    } else if (model && typeof model === 'string' && model.startsWith('gemini-')) {
       console.log(`[${reqId}] 保持Gemini模型: ${model}`);
       // Gemini模型保持不变
     } else {
@@ -374,7 +369,7 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
     id: `chatcmpl-${reqId}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: getCursorCompatibleModelName(openaiRequest.model), // 使用Cursor兼容的模型名
+    model: openaiRequest.model, // 透明代理：返回用户原始请求的模型名
     system_fingerprint: null, // OpenAI标准字段
     choices: [{
       index: 0,
@@ -516,7 +511,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
               id: `chatcmpl-${reqId}`,
               object: "chat.completion.chunk",
               created: Math.floor(Date.now() / 1000),
-              model: getCursorCompatibleModelName(openaiRequest.model),
+              model: openaiRequest.model, // 透明代理：返回用户原始请求的模型名
               system_fingerprint: null,
               choices: [{
                 index: 0,
@@ -570,7 +565,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                       id: `chatcmpl-${reqId}`,
                       object: "chat.completion.chunk",
                       created: Math.floor(Date.now() / 1000),
-                      model: getCursorCompatibleModelName(openaiRequest.model),
+                      model: openaiRequest.model, // 透明代理：返回用户原始请求的模型名
                       system_fingerprint: null,
                       choices: [{
                         index: 0,
@@ -609,7 +604,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                         id: `chatcmpl-${reqId}`,
                         object: "chat.completion.chunk",
                         created: Math.floor(Date.now() / 1000),
-                        model: getCursorCompatibleModelName(openaiRequest.model),
+                        model: openaiRequest.model, // 透明代理：返回用户原始请求的模型名
                         system_fingerprint: null,
                         choices: [{
                           index: 0,
@@ -648,7 +643,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                           id: `chatcmpl-${reqId}`,
                           object: "chat.completion.chunk",
                           created: Math.floor(Date.now() / 1000),
-                          model: getCursorCompatibleModelName(openaiRequest.model),
+                          model: openaiRequest.model, // 透明代理：返回用户原始请求的模型名
                           system_fingerprint: null,
                           choices: [{
                             index: 0,
