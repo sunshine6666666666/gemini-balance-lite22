@@ -156,7 +156,8 @@ export async function enhancedFetch(url, options, apiKeys, reqId, context = '') 
   let lastError;
 
   for (let i = 0; i < apiKeys.length; i++) {
-    const apiKey = selectApiKeyBalanced(apiKeys);
+    // 修复：使用轮询算法而不是时间窗口算法，确保每次重试使用不同的API Key
+    const apiKey = apiKeys[i % apiKeys.length];
     logLoadBalance(reqId, apiKey, apiKeys.length);
 
     try {
