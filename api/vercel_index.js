@@ -142,8 +142,8 @@ async function handleChatCompletions(request, reqId) {
     }
 
     // 扩展模型映射：所有非Gemini模型映射到gemini-2.5-flash-lite
-    let model = openaiRequest.model;
-    if (model.startsWith('gemini-')) {
+    let model = openaiRequest.model || 'gpt-3.5-turbo'; // 提供默认值，防止null错误
+    if (model && typeof model === 'string' && model.startsWith('gemini-')) {
       console.log(`[${reqId}] 保持Gemini模型: ${model}`);
       // Gemini模型保持不变
     } else {
@@ -151,9 +151,9 @@ async function handleChatCompletions(request, reqId) {
       model = 'gemini-2.5-flash-lite';
     }
 
-    // 获取API Key - 使用项目核心负载均衡功能
+    // 获取API Key - 使用项目核心负载均衡功能，添加null安全检查
     const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
       return new Response('Missing or invalid Authorization header', { status: 401 });
     }
 
@@ -212,7 +212,7 @@ async function handleChatCompletions(request, reqId) {
           role = msg.role; // user角色保持不变
         }
 
-        // 处理复杂的content格式，确保透明转发所有信息
+        // 处理复杂的content格式，确保透明转发所有信息，添加null安全检查
         let textContent;
         if (typeof msg.content === 'string') {
           // 简单字符串格式
@@ -222,8 +222,8 @@ async function handleChatCompletions(request, reqId) {
           // 复杂数组格式 - 提取所有text内容并保持完整性
           console.log(`[${reqId}] 消息${index}: 数组格式，包含${msg.content.length}个元素`);
           textContent = msg.content
-            .filter(item => item && item.type === 'text' && item.text)
-            .map(item => item.text)
+            .filter(item => item && item.type === 'text' && item.text && typeof item.text === 'string')
+            .map(item => item.text || '') // 添加null安全检查
             .join('\n'); // 使用换行符连接，保持内容结构
           console.log(`[${reqId}] 消息${index}: 提取文本长度${textContent.length}`);
         } else if (msg.content && typeof msg.content === 'object') {
@@ -641,19 +641,27 @@ async function handleGeminiNativeRequest(request, reqId) {
     const [, modelName, action] = pathMatch;
     console.log(`[${reqId}] 模型: ${modelName}, 操作: ${action}`);
 
-    // 获取API Key
+    // 获取API Key - 使用项目核心负载均衡功能
     const authHeader = request.headers.get('Authorization');
     const apiKeyHeader = request.headers.get('x-goog-api-key');
 
-    let apiKey;
+    let apiKeyString;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      apiKey = authHeader.substring(7);
+      apiKeyString = authHeader.substring(7);
     } else if (apiKeyHeader) {
-      apiKey = apiKeyHeader;
+      apiKeyString = apiKeyHeader;
     } else {
       console.log(`[${reqId}] 缺少API Key`);
       return new Response('Missing API key', { status: 401 });
     }
+
+    // 添加负载均衡逻辑
+    const apiKeys = getEffectiveApiKeys(apiKeyString, `[${reqId}] Gemini原生: `);
+    console.log(`[${reqId}] 🔑 获得${apiKeys.length}个有效API Key，启用负载均衡`);
+
+    // 使用负载均衡选择API Key
+    const selectedApiKey = selectApiKeyBalanced(apiKeys);
+    logLoadBalance(reqId, selectedApiKey, apiKeys.length, "时间窗口轮询");
 
     // 获取请求体
     const requestBody = await request.json();
@@ -670,12 +678,12 @@ async function handleGeminiNativeRequest(request, reqId) {
 
     console.log(`[${reqId}] 转发到Gemini API: ${geminiUrl}`);
 
-    // 转发请求到Gemini API
+    // 转发请求到Gemini API - 使用负载均衡选中的API Key
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey
+        'x-goog-api-key': selectedApiKey
       },
       body: JSON.stringify(requestBody)
     });
