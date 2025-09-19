@@ -591,13 +591,13 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                         index: 0,
                         delta: {},
                         logprobs: null,
-                        finish_reason: finishReason.toLowerCase()
+                        finish_reason: finishReason ? finishReason.toLowerCase() : "stop"
                       }]
                     };
 
                     const finalSseData = `data: ${JSON.stringify(finalChunk)}\n\n`;
                     controller.enqueue(new TextEncoder().encode(finalSseData));
-                    console.log(`[${reqId}] 🏁 发送最终完成块: finish_reason=${finishReason}`);
+                    console.log(`[${reqId}] 🏁 发送最终完成块: finish_reason=${finishReason || 'stop'}`);
 
                     // 🔥 发送[DONE]标记
                     controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`));
