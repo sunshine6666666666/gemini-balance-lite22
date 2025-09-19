@@ -112,6 +112,16 @@ async function handleOpenAIRequest(request, reqId) {
   return new Response('Not Found', { status: 404 });
 }
 
+// 获取Cursor兼容的模型名称
+function getCursorCompatibleModelName(originalModel) {
+  // Cursor IDE只认识OpenAI标准模型名，将Gemini模型映射为gpt-4
+  if (originalModel && typeof originalModel === 'string' && originalModel.startsWith('gemini-')) {
+    console.log(`[getCursorCompatibleModelName] 模型名映射: ${originalModel} -> gpt-4 (Cursor兼容)`);
+    return 'gpt-4';
+  }
+  return originalModel; // 保持OpenAI模型名不变
+}
+
 // 处理聊天完成请求
 async function handleChatCompletions(request, reqId) {
   try {
@@ -364,7 +374,7 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
     id: `chatcmpl-${reqId}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: openaiRequest.model, // 保持原始模型名
+    model: getCursorCompatibleModelName(openaiRequest.model), // 使用Cursor兼容的模型名
     system_fingerprint: null, // OpenAI标准字段
     choices: [{
       index: 0,
@@ -506,7 +516,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
               id: `chatcmpl-${reqId}`,
               object: "chat.completion.chunk",
               created: Math.floor(Date.now() / 1000),
-              model: openaiRequest.model,
+              model: getCursorCompatibleModelName(openaiRequest.model),
               system_fingerprint: null,
               choices: [{
                 index: 0,
@@ -560,7 +570,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                       id: `chatcmpl-${reqId}`,
                       object: "chat.completion.chunk",
                       created: Math.floor(Date.now() / 1000),
-                      model: openaiRequest.model,
+                      model: getCursorCompatibleModelName(openaiRequest.model),
                       system_fingerprint: null,
                       choices: [{
                         index: 0,
@@ -599,7 +609,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                         id: `chatcmpl-${reqId}`,
                         object: "chat.completion.chunk",
                         created: Math.floor(Date.now() / 1000),
-                        model: openaiRequest.model,
+                        model: getCursorCompatibleModelName(openaiRequest.model),
                         system_fingerprint: null,
                         choices: [{
                           index: 0,
@@ -638,7 +648,7 @@ async function processStreamingResponse(geminiResponse, openaiRequest, reqId) {
                           id: `chatcmpl-${reqId}`,
                           object: "chat.completion.chunk",
                           created: Math.floor(Date.now() / 1000),
-                          model: openaiRequest.model,
+                          model: getCursorCompatibleModelName(openaiRequest.model),
                           choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
                         };
                         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(emergencyChunk)}\n\n`));
