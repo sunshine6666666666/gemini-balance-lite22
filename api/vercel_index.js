@@ -9,7 +9,8 @@ import {
   getEffectiveApiKeys,
   selectApiKeyBalanced,
   logLoadBalance,
-  enhancedFetch
+  enhancedFetch,
+  enhancedFetchOpenAI
 } from '../src/utils.js';
 
 // 内联的handleRequest函数
@@ -254,8 +255,9 @@ async function handleChatCompletions(request, reqId) {
 
         // 新增参数映射
         ...(openaiRequest.top_k !== undefined && { topK: openaiRequest.top_k }),
-        ...(openaiRequest.frequency_penalty !== undefined && { frequencyPenalty: openaiRequest.frequency_penalty }),
-        ...(openaiRequest.presence_penalty !== undefined && { presencePenalty: openaiRequest.presence_penalty }),
+        // 注意：gemini-2.5-flash-lite不支持penalty参数，只有完整版gemini模型支持
+        ...(model !== 'gemini-2.5-flash-lite' && openaiRequest.frequency_penalty !== undefined && { frequencyPenalty: openaiRequest.frequency_penalty }),
+        ...(model !== 'gemini-2.5-flash-lite' && openaiRequest.presence_penalty !== undefined && { presencePenalty: openaiRequest.presence_penalty }),
         ...(openaiRequest.stop && { stopSequences: Array.isArray(openaiRequest.stop) ? openaiRequest.stop : [openaiRequest.stop] }),
 
         // 处理OpenAI的response_format参数
@@ -316,8 +318,8 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-  // 使用增强的fetch函数，内置负载均衡和重试机制
-  const geminiResponse = await enhancedFetch(geminiUrl, {
+  // 使用OpenAI兼容的fetch函数，内置轮询负载均衡和重试机制
+  const geminiResponse = await enhancedFetchOpenAI(geminiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(geminiRequest)

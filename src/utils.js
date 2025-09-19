@@ -149,6 +149,67 @@ export function getEffectiveApiKeys(authHeader, context = '') {
 }
 
 /**
+ * OpenAI兼容模式专用的fetch函数 - 使用轮询算法确保重试时使用不同API Key
+ */
+export async function enhancedFetchOpenAI(url, options, apiKeys, reqId, context = '') {
+  const timeout = 45000; // 45秒超时
+  let lastError;
+
+  for (let i = 0; i < apiKeys.length; i++) {
+    // OpenAI兼容模式：使用轮询算法确保每次重试使用不同的API Key
+    const apiKey = apiKeys[i % apiKeys.length];
+    console.log(`⚖️ [${reqId}] OpenAI兼容负载均衡: 轮询算法 | 尝试${i+1}/${apiKeys.length} | 选中: ${apiKey.substring(0, 8)}... | 总数: ${apiKeys.length}`);
+
+    try {
+      // 设置API Key
+      const headers = new Headers(options.headers);
+      headers.set('x-goog-api-key', apiKey);
+
+      // 创建超时控制器
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      const startTime = Date.now();
+
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      const responseTime = Date.now() - startTime;
+
+      if (response.ok) {
+        console.log(`✅ [${reqId}] OpenAI兼容请求成功: ${context} | 响应时间: ${responseTime}ms | API Key: ${apiKey.substring(0, 8)}...`);
+        return response;
+      } else {
+        const errorText = await response.text();
+        console.log(`⚠️ [${reqId}] API Key ${apiKey.substring(0, 8)}... 返回错误: ${response.status}`);
+        lastError = new Error(`HTTP ${response.status}: ${errorText}`);
+
+        // 如果是400错误且包含特定消息，跳过后续重试
+        if (response.status === 400 && errorText.includes('Penalty is not enabled')) {
+          console.log(`🚫 [${reqId}] 检测到模型不支持penalty参数，停止重试`);
+          throw lastError;
+        }
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log(`⏰ [${reqId}] API Key ${apiKey.substring(0, 8)}... 请求超时`);
+        lastError = new Error(`Request timeout after ${timeout}ms`);
+      } else {
+        console.log(`❌ [${reqId}] API Key ${apiKey.substring(0, 8)}... 请求失败: ${error.message}`);
+        lastError = error;
+      }
+    }
+  }
+
+  console.error(`💥 [${reqId}] 所有API Key都失败了: ${context}`);
+  throw lastError || new Error('All API keys failed');
+}
+
+/**
  * 增强的fetch函数 - 支持超时和重试
  */
 export async function enhancedFetch(url, options, apiKeys, reqId, context = '') {
@@ -156,8 +217,8 @@ export async function enhancedFetch(url, options, apiKeys, reqId, context = '') 
   let lastError;
 
   for (let i = 0; i < apiKeys.length; i++) {
-    // 修复：使用轮询算法而不是时间窗口算法，确保每次重试使用不同的API Key
-    const apiKey = apiKeys[i % apiKeys.length];
+    // 恢复原始的时间窗口轮询算法，保持现有负载均衡逻辑
+    const apiKey = selectApiKeyBalanced(apiKeys);
     logLoadBalance(reqId, apiKey, apiKeys.length);
 
     try {
