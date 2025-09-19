@@ -292,11 +292,11 @@ async function handleChatCompletions(request, reqId) {
 
     // 根据请求类型选择不同的处理方式
     if (isStreaming) {
-      console.log(`[${reqId}] 使用真正的流式处理: streamGenerateContent`);
-      return handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId);
+      console.log(`[${reqId}] 使用OpenAI兼容流式处理: streamGenerateContent`);
+      return handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId, true);
     } else {
-      console.log(`[${reqId}] 使用非流式端点: generateContent`);
-      return handleNonStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId);
+      console.log(`[${reqId}] 使用OpenAI兼容非流式处理: generateContent`);
+      return handleNonStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId, true);
     }
   } catch (error) {
     console.error(`[${reqId}] 处理错误: ${error.message}`);
@@ -313,7 +313,7 @@ async function handleChatCompletions(request, reqId) {
 }
 
 // 处理非流式响应 - 使用负载均衡
-async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId) {
+async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId, isOpenAICompatible = false) {
   console.log(`[${reqId}] 🔄 非流式请求使用负载均衡，共${apiKeys.length}个API Key`);
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -405,7 +405,7 @@ async function handleNonStreamingResponse(geminiRequest, openaiRequest, model, a
 
 
 // 处理真正的流式响应 - 使用负载均衡和API Key故障切换
-async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId) {
+async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, apiKeys, reqId, isOpenAICompatible = false) {
   console.log(`[${reqId}] 🌊 流式请求使用负载均衡，共${apiKeys.length}个API Key`);
 
   // API Key重试机制 - 修复：尝试所有可用的API Key
