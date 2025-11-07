@@ -99,6 +99,7 @@ async function handleGeminiRequest(request, reqId) {
   // 获取有效的API Key池
   const apiKeys = getEffectiveApiKeys(authHeader, 'Gemini模式: ');
   console.log(`🔑 [${reqId}] 获得${apiKeys.length}个有效API Key`);
+  console.log(`🔍 [DEBUG][${reqId}] getEffectiveApiKeys返回的Keys: ${apiKeys.map(k => k.substring(0, 8) + '...').join(', ')}`);
 
   // 构建目标URL
   const targetUrl = `https://generativelanguage.googleapis.com${url.pathname}${url.search}`;
@@ -121,6 +122,7 @@ async function handleGeminiRequest(request, reqId) {
     }
   }
 
+  console.log(`🔍 [DEBUG][${reqId}] 准备调用enhancedFetch，传递${apiKeys.length}个Keys`);
   // 发送请求
   const response = await enhancedFetch(targetUrl, requestOptions, apiKeys, reqId, 'Gemini');
 

@@ -22,7 +22,9 @@ export function addKeyToBlacklist(apiKey, reason = 'API Key reported as leaked')
 }
 
 export function isKeyBlacklisted(apiKey) {
-  return leakedKeysBlacklist.has(apiKey);
+  const result = leakedKeysBlacklist.has(apiKey);
+  console.log(`🔍 [DEBUG] isKeyBlacklisted检查: ${apiKey?.substring(0, 8)}... -> ${result}`);
+  return result;
 }
 
 export function getBlacklistedKeysCount() {
@@ -118,12 +120,19 @@ export function validateTrustedApiKey(inputApiKey, context = '') {
  * 核心特色算法，确保API Key使用的相对均匀分布
  */
 export function selectApiKeyBalanced(apiKeys) {
+  console.log(`🔍 [DEBUG] selectApiKeyBalanced开始，原始Keys数量: ${apiKeys?.length || 0}`);
+  console.log(`🔍 [DEBUG] 当前黑名单Keys数量: ${leakedKeysBlacklist.size}`);
+  console.log(`🔍 [DEBUG] 黑名单内容: ${Array.from(leakedKeysBlacklist).map(k => k.substring(0, 8) + '...').join(', ')}`);
+  console.log(`🔍 [DEBUG] 原始Keys: ${apiKeys?.map(k => k.substring(0, 8) + '...').join(', ') || 'empty'}`);
+
   if (!apiKeys || apiKeys.length === 0) {
     throw new Error('API Key数组不能为空');
   }
 
   // 过滤掉黑名单中的Key
   const availableKeys = apiKeys.filter(key => !isKeyBlacklisted(key));
+  console.log(`🔍 [DEBUG] 过滤后可用Keys数量: ${availableKeys.length}`);
+  console.log(`🔍 [DEBUG] 可用Keys: ${availableKeys.map(k => k.substring(0, 8) + '...').join(', ')}`);
 
   if (availableKeys.length === 0) {
     console.log(`🚫 所有API Key都在黑名单中，可用Key: ${apiKeys.length}, 黑名单: ${leakedKeysBlacklist.size}`);
@@ -143,7 +152,9 @@ export function selectApiKeyBalanced(apiKeys) {
   const slotSize = windowSize / availableKeys.length;
   const index = Math.floor(offsetInWindow / slotSize) % availableKeys.length;
 
-  return availableKeys[index];
+  const selectedKey = availableKeys[index];
+  console.log(`🔍 [DEBUG] 最终选中Key: ${selectedKey?.substring(0, 8)}... (index: ${index})`);
+  return selectedKey;
 }
 
 /**
@@ -268,16 +279,25 @@ export async function enhancedFetch(url, options, apiKeys, reqId, context = '') 
   const timeout = 45000; // 45秒超时
   let lastError;
 
+  console.log(`🔍 [DEBUG][${reqId}] enhancedFetch开始，输入Keys数量: ${apiKeys.length}`);
+  console.log(`🔍 [DEBUG][${reqId}] 输入Keys: ${apiKeys.map(k => k.substring(0, 8) + '...').join(', ')}`);
+
   // 预先过滤掉黑名单中的Key
   const availableKeys = apiKeys.filter(key => !isKeyBlacklisted(key));
+  console.log(`🔍 [DEBUG][${reqId}] 过滤后可用Keys数量: ${availableKeys.length}`);
+  console.log(`🔍 [DEBUG][${reqId}] 可用Keys: ${availableKeys.map(k => k.substring(0, 8) + '...').join(', ')}`);
 
   if (availableKeys.length === 0) {
     throw new Error('所有可用的API Key都在黑名单中');
   }
 
   for (let i = 0; i < availableKeys.length; i++) {
+    console.log(`🔍 [DEBUG][${reqId}] 循环 ${i+1}/${availableKeys.length} 开始`);
+
     // 使用时间窗口轮询算法选择可用的Key
     const apiKey = selectApiKeyBalanced(availableKeys);
+    console.log(`🔍 [DEBUG][${reqId}] 循环 ${i+1} 选中Key: ${apiKey?.substring(0, 8)}...`);
+
     logLoadBalance(reqId, apiKey, availableKeys.length);
 
     try {
