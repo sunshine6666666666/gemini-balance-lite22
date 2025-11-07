@@ -193,10 +193,17 @@ export async function enhancedFetchOpenAI(url, options, apiKeys, reqId, context 
   const timeout = 45000; // 45秒超时
   let lastError;
 
-  for (let i = 0; i < apiKeys.length; i++) {
+  // 预先过滤掉黑名单中的Key
+  const availableKeys = apiKeys.filter(key => !isKeyBlacklisted(key));
+
+  if (availableKeys.length === 0) {
+    throw new Error('OpenAI兼容模式：所有可用的API Key都在黑名单中');
+  }
+
+  for (let i = 0; i < availableKeys.length; i++) {
     // OpenAI兼容模式：使用轮询算法确保每次重试使用不同的API Key
-    const apiKey = apiKeys[i % apiKeys.length];
-    console.log(`⚖️ [${reqId}] OpenAI兼容负载均衡: 轮询算法 | 尝试${i+1}/${apiKeys.length} | 选中: ${apiKey.substring(0, 8)}... | 总数: ${apiKeys.length}`);
+    const apiKey = availableKeys[i % availableKeys.length];
+    console.log(`⚖️ [${reqId}] OpenAI兼容负载均衡: 轮询算法 | 尝试${i+1}/${availableKeys.length} | 选中: ${apiKey.substring(0, 8)}... | 总数: ${availableKeys.length}`);
 
     try {
       // 设置API Key
@@ -261,10 +268,17 @@ export async function enhancedFetch(url, options, apiKeys, reqId, context = '') 
   const timeout = 45000; // 45秒超时
   let lastError;
 
-  for (let i = 0; i < apiKeys.length; i++) {
-    // 恢复原始的时间窗口轮询算法，保持现有负载均衡逻辑
-    const apiKey = selectApiKeyBalanced(apiKeys);
-    logLoadBalance(reqId, apiKey, apiKeys.length);
+  // 预先过滤掉黑名单中的Key
+  const availableKeys = apiKeys.filter(key => !isKeyBlacklisted(key));
+
+  if (availableKeys.length === 0) {
+    throw new Error('所有可用的API Key都在黑名单中');
+  }
+
+  for (let i = 0; i < availableKeys.length; i++) {
+    // 使用时间窗口轮询算法选择可用的Key
+    const apiKey = selectApiKeyBalanced(availableKeys);
+    logLoadBalance(reqId, apiKey, availableKeys.length);
 
     try {
       // 设置API Key
