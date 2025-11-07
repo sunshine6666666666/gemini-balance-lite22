@@ -3,6 +3,32 @@
  * 专注于高可读性的日志输出和简洁的工具函数
  */
 
+// 服务器调用Gemini时的Key黑名单（内存存储，重启后重置）
+const leakedKeysBlacklist = new Set();
+
+/**
+ * 泄露Key黑名单管理
+ */
+export function addKeyToBlacklist(apiKey, reason = 'API Key reported as leaked') {
+  const keyPreview = apiKey?.substring(0, 8) + '...';
+  if (leakedKeysBlacklist.has(apiKey)) {
+    console.log(`⚠️ Key ${keyPreview} 已在泄露黑名单中`);
+    return;
+  }
+
+  leakedKeysBlacklist.add(apiKey);
+  console.log(`🚫 Key ${keyPreview} 已加入泄露黑名单，原因: ${reason}`);
+  console.log(`📊 当前泄露黑名单数量: ${leakedKeysBlacklist.size}`);
+}
+
+export function isKeyBlacklisted(apiKey) {
+  return leakedKeysBlacklist.has(apiKey);
+}
+
+export function getBlacklistedKeysCount() {
+  return leakedKeysBlacklist.size;
+}
+
 /**
  * 生成请求ID用于日志追踪
  */
@@ -96,16 +122,28 @@ export function selectApiKeyBalanced(apiKeys) {
     throw new Error('API Key数组不能为空');
   }
 
+  // 过滤掉黑名单中的Key
+  const availableKeys = apiKeys.filter(key => !isKeyBlacklisted(key));
+
+  if (availableKeys.length === 0) {
+    console.log(`🚫 所有API Key都在黑名单中，可用Key: ${apiKeys.length}, 黑名单: ${leakedKeysBlacklist.size}`);
+    throw new Error('所有可用的API Key都被标记为泄露');
+  }
+
+  if (availableKeys.length < apiKeys.length) {
+    console.log(`⚠️ 跳过${apiKeys.length - availableKeys.length}个黑名单Key，可用Key: ${availableKeys.length}`);
+  }
+
   const now = Date.now();
   const windowSize = 10000; // 10秒时间窗口
   const windowStart = Math.floor(now / windowSize) * windowSize;
   const offsetInWindow = now - windowStart;
 
-  // 在时间窗口内进行轮询分配
-  const slotSize = windowSize / apiKeys.length;
-  const index = Math.floor(offsetInWindow / slotSize) % apiKeys.length;
+  // 在时间窗口内进行轮询分配（基于过滤后的可用Key）
+  const slotSize = windowSize / availableKeys.length;
+  const index = Math.floor(offsetInWindow / slotSize) % availableKeys.length;
 
-  return apiKeys[index];
+  return availableKeys[index];
 }
 
 /**
@@ -186,6 +224,13 @@ export async function enhancedFetchOpenAI(url, options, apiKeys, reqId, context 
       } else {
         const errorText = await response.text();
         console.log(`⚠️ [${reqId}] API Key ${apiKey.substring(0, 8)}... 返回错误: ${response.status}`);
+
+        // 检测403泄露错误并自动加入黑名单
+        if (response.status === 403 && errorText.includes('reported as leaked')) {
+          console.log(`🚨 [${reqId}] OpenAI兼容模式检测到API Key泄露: ${apiKey.substring(0, 8)}... 自动加入黑名单`);
+          addKeyToBlacklist(apiKey, 'OpenAI兼容模式API返回403: reported as leaked');
+        }
+
         lastError = new Error(`HTTP ${response.status}: ${errorText}`);
 
         // 如果是400错误且包含特定消息，跳过后续重试
@@ -247,6 +292,13 @@ export async function enhancedFetch(url, options, apiKeys, reqId, context = '') 
       } else {
         const errorText = await response.text();
         console.log(`⚠️ [${reqId}] API Key ${apiKey.substring(0, 8)}... 返回错误: ${response.status}`);
+
+        // 检测403泄露错误并自动加入黑名单
+        if (response.status === 403 && errorText.includes('reported as leaked')) {
+          console.log(`🚨 [${reqId}] 检测到API Key泄露: ${apiKey.substring(0, 8)}... 自动加入黑名单`);
+          addKeyToBlacklist(apiKey, 'API返回403: reported as leaked');
+        }
+
         lastError = new Error(`HTTP ${response.status}: ${errorText}`);
       }
     } catch (error) {
