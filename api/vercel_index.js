@@ -10,7 +10,8 @@ import {
   selectApiKeyBalanced,
   logLoadBalance,
   enhancedFetch,
-  enhancedFetchOpenAI
+  enhancedFetchOpenAI,
+  addKeyToBlacklist
 } from '../src/utils.js';
 
 // 内联的handleRequest函数
@@ -453,6 +454,13 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
       if (geminiResponse.status === 400 || geminiResponse.status === 401 || geminiResponse.status === 403) {
         const errorData = await geminiResponse.text();
         console.warn(`[${reqId}] ⚠️ 尝试${attemptCount}: API Key认证失败 (${geminiResponse.status}): ${errorData}`);
+
+        // 检测403泄露错误并自动加入黑名单
+        if (geminiResponse.status === 403 && errorData.includes('reported as leaked')) {
+          console.log(`🚨 [${reqId}] 检测到API Key泄露: ${selectedApiKey.substring(0, 8)}... 自动加入黑名单`);
+          addKeyToBlacklist(selectedApiKey, 'API返回403: reported as leaked');
+        }
+
         lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
 
         if (attempt < maxAttempts - 1) {
@@ -792,6 +800,13 @@ async function handleGeminiNativeRequest(request, reqId) {
         if (geminiResponse.status === 400 || geminiResponse.status === 401 || geminiResponse.status === 403) {
           const errorData = await geminiResponse.text();
           console.warn(`[${reqId}] ⚠️ Gemini原生尝试${attemptCount}: API Key认证失败 (${geminiResponse.status}): ${errorData}`);
+
+          // 检测403泄露错误并自动加入黑名单
+          if (geminiResponse.status === 403 && errorData.includes('reported as leaked')) {
+            console.log(`🚨 [${reqId}] Gemini原生检测到API Key泄露: ${currentApiKey.substring(0, 8)}... 自动加入黑名单`);
+            addKeyToBlacklist(currentApiKey, 'Gemini原生API返回403: reported as leaked');
+          }
+
           lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
 
           if (attempt < maxAttempts - 1) {
