@@ -4,14 +4,75 @@ export const config = {
   runtime: 'edge'
 };
 
+// 全局黑名单状态 - 解决Edge Runtime中的状态共享问题
+const globalLeakedKeysBlacklist = new Set();
+
+// 重写黑名单相关函数以使用全局状态
+function addKeyToBlacklistLocal(apiKey, reason = 'API Key reported as leaked') {
+  const keyPreview = apiKey?.substring(0, 8) + '...';
+  if (globalLeakedKeysBlacklist.has(apiKey)) {
+    console.log(`⚠️ Key ${keyPreview} 已在泄露黑名单中`);
+    return;
+  }
+
+  globalLeakedKeysBlacklist.add(apiKey);
+  console.log(`🚫 Key ${keyPreview} 已加入泄露黑名单，原因: ${reason}`);
+  console.log(`📊 当前泄露黑名单数量: ${globalLeakedKeysBlacklist.size}`);
+}
+
+function isKeyBlacklistedLocal(apiKey) {
+  const result = globalLeakedKeysBlacklist.has(apiKey);
+  console.log(`🔍 [DEBUG] isKeyBlacklisted检查: ${apiKey?.substring(0, 8)}... -> ${result}`);
+  return result;
+}
+
+function getBlacklistedKeysCountLocal() {
+  return globalLeakedKeysBlacklist.size;
+}
+
+function getBlacklistedKeysLocal() {
+  return Array.from(globalLeakedKeysBlacklist);
+}
+
+// 重写selectApiKeyBalanced以使用本地黑名单状态
+function selectApiKeyBalancedLocal(apiKeys) {
+  console.log(`🔍 [DEBUG] selectApiKeyBalanced开始，原始Keys数量: ${apiKeys?.length || 0}`);
+  console.log(`🔍 [DEBUG] 当前黑名单Keys数量: ${globalLeakedKeysBlacklist.size}`);
+  console.log(`🔍 [DEBUG] 黑名单内容: ${Array.from(globalLeakedKeysBlacklist).map(k => k.substring(0, 8) + '...').join(', ')}`);
+  console.log(`🔍 [DEBUG] 原始Keys: ${apiKeys?.map(k => k.substring(0, 8) + '...').join(', ') || 'empty'}`);
+
+  if (!apiKeys || apiKeys.length === 0) {
+    throw new Error('API Key数组不能为空');
+  }
+
+  // 过滤掉黑名单中的Key
+  const availableKeys = apiKeys.filter(key => !isKeyBlacklistedLocal(key));
+  console.log(`🔍 [DEBUG] 过滤后可用Keys数量: ${availableKeys.length}`);
+  console.log(`🔍 [DEBUG] 可用Keys: ${availableKeys.map(k => k.substring(0, 8) + '...').join(', ')}`);
+
+  if (availableKeys.length === 0) {
+    console.log(`🚫 所有API Key都在黑名单中，可用Key: ${apiKeys.length}, 黑名单: ${globalLeakedKeysBlacklist.size}`);
+    throw new Error('所有可用的API Key都被标记为泄露');
+  }
+
+  if (availableKeys.length < apiKeys.length) {
+    console.log(`⚠️ 跳过${apiKeys.length - availableKeys.length}个黑名单Key，可用Key: ${availableKeys.length}`);
+  }
+
+  // 简化的负载均衡逻辑：随机选择可用Key
+  const randomIndex = Math.floor(Math.random() * availableKeys.length);
+  const selectedKey = availableKeys[randomIndex];
+
+  console.log(`🔍 [DEBUG] 最终选中Key: ${selectedKey?.substring(0, 8)}... (index: ${randomIndex})`);
+  return selectedKey;
+}
+
 // 导入核心负载均衡功能
 import {
   getEffectiveApiKeys,
-  selectApiKeyBalanced,
   logLoadBalance,
   enhancedFetch,
-  enhancedFetchOpenAI,
-  addKeyToBlacklist
+  enhancedFetchOpenAI
 } from '../src/utils.js';
 
 // 内联的handleRequest函数
@@ -169,7 +230,7 @@ async function handleChatCompletions(request, reqId) {
     console.log(`[${reqId}] 🔑 获得${apiKeys.length}个有效API Key，启用负载均衡`);
 
     // 使用负载均衡选择API Key
-    const selectedApiKey = selectApiKeyBalanced(apiKeys);
+    const selectedApiKey = selectApiKeyBalancedLocal(apiKeys);
     logLoadBalance(reqId, selectedApiKey, apiKeys.length, "时间窗口轮询");
 
     // 转换为Gemini格式 - 正确处理角色映射和复杂content格式
@@ -423,14 +484,14 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     attemptCount++;
 
-    // 选择未使用过的API Key - 修复：直接使用轮询避免重复选择
-    let selectedApiKey = apiKeys[attempt % apiKeys.length];
+    // 选择未使用过的API Key - 使用负载均衡函数自动避开黑名单
+    let selectedApiKey = selectApiKeyBalancedLocal(apiKeys);
 
-    // 确保不重复使用已失败的Key
+    // 确保不重复使用已失败的Key（在本轮请求中）
     let keyAttempts = 0;
     while (usedKeys.has(selectedApiKey) && keyAttempts < apiKeys.length) {
       keyAttempts++;
-      selectedApiKey = apiKeys[(attempt + keyAttempts) % apiKeys.length];
+      selectedApiKey = selectApiKeyBalancedLocal(apiKeys);
     }
 
     usedKeys.add(selectedApiKey);
@@ -458,7 +519,7 @@ async function handleRealStreamingResponse(geminiRequest, openaiRequest, model, 
         // 检测403泄露错误并自动加入黑名单
         if (geminiResponse.status === 403 && errorData.includes('reported as leaked')) {
           console.log(`🚨 [${reqId}] 检测到API Key泄露: ${selectedApiKey.substring(0, 8)}... 自动加入黑名单`);
-          addKeyToBlacklist(selectedApiKey, 'API返回403: reported as leaked');
+          addKeyToBlacklistLocal(selectedApiKey, 'API返回403: reported as leaked');
         }
 
         lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
@@ -753,7 +814,7 @@ async function handleGeminiNativeRequest(request, reqId) {
     console.log(`[${reqId}] 🔑 获得${apiKeys.length}个有效API Key，启用负载均衡`);
 
     // 使用负载均衡选择API Key
-    const selectedApiKey = selectApiKeyBalanced(apiKeys);
+    const selectedApiKey = selectApiKeyBalancedLocal(apiKeys);
     logLoadBalance(reqId, selectedApiKey, apiKeys.length, "时间窗口轮询");
 
     // 获取请求体
@@ -780,8 +841,8 @@ async function handleGeminiNativeRequest(request, reqId) {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       attemptCount++;
 
-      // 轮询选择API Key
-      const currentApiKey = apiKeys[attempt % apiKeys.length];
+      // 每次尝试都重新选择可用的API Key（避开黑名单）
+      const currentApiKey = selectApiKeyBalancedLocal(apiKeys);
       console.log(`[${reqId}] 🔄 Gemini原生尝试${attemptCount}/${maxAttempts}: 使用API Key ${currentApiKey.substring(0, 8)}...`);
 
       try {
@@ -804,7 +865,7 @@ async function handleGeminiNativeRequest(request, reqId) {
           // 检测403泄露错误并自动加入黑名单
           if (geminiResponse.status === 403 && errorData.includes('reported as leaked')) {
             console.log(`🚨 [${reqId}] Gemini原生检测到API Key泄露: ${currentApiKey.substring(0, 8)}... 自动加入黑名单`);
-            addKeyToBlacklist(currentApiKey, 'Gemini原生API返回403: reported as leaked');
+            addKeyToBlacklistLocal(currentApiKey, 'Gemini原生API返回403: reported as leaked');
           }
 
           lastError = new Error(`API Key认证失败: ${geminiResponse.status} - ${errorData}`);
